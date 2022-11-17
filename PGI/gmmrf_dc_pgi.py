@@ -39,6 +39,224 @@ from sklearn.utils import check_array
 from scipy.special import logsumexp
 
 
+class GaussianMixtureMarkovRandomField(utils.WeightedGaussianMixture):
+
+    def __init__(
+        self,
+        n_components,
+        mesh,
+        actv=None,
+        kdtree=None, indexneighbors=None,
+        boreholeidx=None,
+        T=12., kneighbors=0, norm=2,
+        init_params='kmeans', max_iter=100,
+        covariance_type='full',
+        means_init=None, n_init=10, precisions_init=None,
+        random_state=None, reg_covar=1e-06, tol=0.001, verbose=0,
+        verbose_interval=10, warm_start=False, weights_init=None,
+        anisotropy=None,
+        #unit_anisotropy=None, # Dictionary with unit, anisotropy and index
+        #unit_kdtree=None, # List of KDtree
+        index_anisotropy=None, # Dictionary with anisotropy and index
+        index_kdtree=None,# List of KDtree
+        #**kwargs
+    ):
+
+        super(GaussianMixtureMarkovRandomField, self).__init__(
+            n_components=n_components,
+            mesh=mesh,
+            actv=actv,
+            covariance_type=covariance_type,
+            init_params=init_params,
+            max_iter=max_iter,
+            means_init=means_init,
+            n_init=n_init,
+            precisions_init=precisions_init,
+            random_state=random_state,
+            reg_covar=reg_covar,
+            tol=tol,
+            verbose=verbose,
+            verbose_interval=verbose_interval,
+            warm_start=warm_start,
+            weights_init=weights_init,
+            #boreholeidx=boreholeidx
+            # **kwargs
+        )
+        # setKwargs(self, **kwargs)
+        self.kneighbors = kneighbors
+        self.T = T
+        self.boreholeidx = boreholeidx
+        self.anisotropy = anisotropy
+        self.norm = norm
+
+        if self.mesh.gridCC.ndim == 1:
+            xyz = np.c_[self.mesh.gridCC]
+        elif self.anisotropy is not None:
+            xyz = self.anisotropy.dot(self.mesh.gridCC.T).T
+        else:
+            xyz = self.mesh.gridCC
+        if self.actv is None:
+            self.xyz = xyz
+        else:
+            self.xyz = xyz[self.actv]
+        if kdtree is None:
+            print('Computing KDTree, it may take several minutes.')
+            self.kdtree = spatial.KDTree(self.xyz)
+        else:
+            self.kdtree = kdtree
+        if indexneighbors is None:
+            print('Computing neighbors, it may take several minutes.')
+            _, self.indexneighbors = self.kdtree.query(self.xyz, k=self.kneighbors+1, p=self.norm)
+        else:
+            self.indexneighbors = indexneighbors
+
+        self.indexpoint = copy.deepcopy(self.indexneighbors)
+        self.index_anisotropy = index_anisotropy
+        self.index_kdtree = index_kdtree
+        if self.index_anisotropy is not None and self.mesh.gridCC.ndim != 1:
+
+            self.unitxyz = []
+            for i, anis in enumerate(self.index_anisotropy['anisotropy']):
+                self.unitxyz.append((anis).dot(self.xyz.T).T)
+
+            if self.index_kdtree is None:
+                self.index_kdtree = []
+                print('Computing rock unit specific KDTree, it may take several minutes.')
+                for i, anis in enumerate(self.index_anisotropy['anisotropy']):
+                    self.index_kdtree.append(spatial.KDTree(self.unitxyz[i]))
+
+            #print('Computing new neighbors based on rock units, it may take several minutes.')
+            #for i, unitindex in enumerate(self.index_anisotropy['index']):
+        #        _, self.indexpoint[unitindex] = self.index_kdtree[i].query(self.unitxyz[i][unitindex], k=self.kneighbors+1)
+
+
+    def computeG(self, z, w, X):
+
+        #Find neighbors given the current state of data and model
+        if self.index_anisotropy is not None and self.mesh.gridCC.ndim != 1:
+            prediction = self.predict(X)
+            unit_index = []
+            for i in range(self.n_components):
+                unit_index.append(np.where(prediction==i)[0])
+            for i, unitindex in enumerate(unit_index):
+                _, self.indexpoint[unitindex] = self.index_kdtree[i].query(
+                    self.unitxyz[i][unitindex],
+                    k=self.kneighbors+1,
+                    p=self.index_anisotropy['norm'][i]
+                )
+
+        logG = (self.T/(2.*(self.kneighbors+1))) * (
+            (z[self.indexpoint] + w[self.indexpoint]).sum(
+                axis=1
+            )
+        )
+        return logG
+
+    def _m_step(self, X, log_resp):
+        """M step.
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+        log_resp : array-like, shape (n_samples, n_components)
+            Logarithm of the posterior probabilities (or responsibilities) of
+            the point of each sample in X.
+        """
+        n_samples, _ = X.shape
+        _, self.means_, self.covariances_ = (
+            self._estimate_gaussian_parameters(X, self.mesh, np.exp(log_resp), self.reg_covar,self.covariance_type)
+        )
+        #self.weights_ /= n_samples
+        self.precisions_cholesky_ = _compute_precision_cholesky(
+            self.covariances_, self.covariance_type)
+
+        logweights = logsumexp(np.c_[[log_resp, self.computeG(np.exp(log_resp), self.weights_,X)]], axis=0)
+        logweights = logweights - logsumexp(
+            logweights, axis=1, keepdims=True
+        )
+
+        self.weights_ = np.exp(logweights)
+        if self.boreholeidx is not None:
+            aux = np.zeros((self.boreholeidx.shape[0],self.n_components))
+            aux[np.arange(len(aux)), self.boreholeidx[:,1]]=1
+            self.weights_[self.boreholeidx[:,0]] = aux
+
+
+    def _check_weights(self, weights, n_components, n_samples):
+        """Check the user provided 'weights'.
+        Parameters
+        ----------
+        weights : array-like, shape (n_components,)
+            The proportions of components of each mixture.
+        n_components : int
+            Number of components.
+        Returns
+        -------
+        weights : array, shape (n_components,)
+        """
+        weights = check_array(
+            weights, dtype=[np.float64, np.float32],
+            ensure_2d=True
+        )
+        _check_shape(weights, (n_components, n_samples), 'weights')
+
+    def _check_parameters(self, X):
+        """Check the Gaussian mixture parameters are well defined."""
+        n_samples, n_features = X.shape
+        if self.covariance_type not in ['spherical', 'tied', 'diag', 'full']:
+            raise ValueError("Invalid value for 'covariance_type': %s "
+                             "'covariance_type' should be in "
+                             "['spherical', 'tied', 'diag', 'full']"
+                             % self.covariance_type)
+
+        if self.weights_init is not None:
+            self.weights_init = self._check_weights(
+                self.weights_init,
+                n_samples,
+                self.n_components
+            )
+
+        if self.means_init is not None:
+            self.means_init = _check_means(self.means_init,
+                                           self.n_components, n_features)
+
+        if self.precisions_init is not None:
+            self.precisions_init = _check_precisions(self.precisions_init,
+                                                     self.covariance_type,
+                                                     self.n_components,
+                                                     n_features)
+
+    def _initialize(self, X, resp):
+        """Initialization of the Gaussian mixture parameters.
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+        resp : array-like, shape (n_samples, n_components)
+        """
+        n_samples, _ = X.shape
+
+        weights, means, covariances = self._estimate_gaussian_parameters(
+            X, self.mesh, resp, self.reg_covar, self.covariance_type)
+        weights /= n_samples
+
+        self.weights_ = (weights*np.ones((n_samples,self.n_components)) if self.weights_init is None
+                         else self.weights_init)
+        self.means_ = means if self.means_init is None else self.means_init
+
+        if self.precisions_init is None:
+            self.covariances_ = covariances
+            self.precisions_cholesky_ = _compute_precision_cholesky(
+                covariances, self.covariance_type)
+        elif self.covariance_type == 'full':
+            self.precisions_cholesky_ = np.array(
+                [linalg.cholesky(prec_init, lower=True)
+                 for prec_init in self.precisions_init])
+        elif self.covariance_type == 'tied':
+            self.precisions_cholesky_ = linalg.cholesky(self.precisions_init,
+                                                        lower=True)
+        else:
+            self.precisions_cholesky_ = self.precisions_init
+
+
 # -----------------------------------------------------------------------
 
 # creating directives and additional classes
@@ -74,199 +292,6 @@ class Plot_mref(directives.InversionDirective):
             method='nearest'
         )
         plt.show()
-
-class GaussianMixtureMarkovRandomField(GaussianMixture):
-
-    def __init__(
-        self, 
-        n_components,
-        mesh, # the mesh is used to measure the distance between points and find neighboring pixels
-        beta = 12.,
-        kneighbors=0,
-        covariance_type='full',
-        init_params='kmeans', max_iter=100,
-        means_init=None, n_init=10, precisions_init=None,
-        random_state=None, reg_covar=1e-06, tol=0.001, verbose=0,
-        verbose_interval=10, warm_start=False, weights_init=None,
-        #**kwargs
-    ):
-        self.mesh = mesh
-        self.kneighbors = kneighbors
-        print('Computing KDTree, it may take several minutes.')
-        self.tree = spatial.KDTree(self.mesh.gridCC)
-        _, self.indexpoint = self.tree.query(self.mesh.gridCC, k=self.kneighbors+1)#, distance_upper_bound=100.)
-        self.beta = beta
-        
-        super(GaussianMixtureMarkovRandomField, self).__init__(
-            covariance_type=covariance_type,
-            init_params=init_params,
-            max_iter=max_iter,
-            means_init=means_init,
-            n_components=n_components,
-            n_init=n_init,
-            precisions_init=precisions_init,
-            random_state=random_state,
-            reg_covar=reg_covar,
-            tol=tol,
-            verbose=verbose,
-            verbose_interval=verbose_interval,
-            warm_start=warm_start,
-            weights_init=weights_init,
-            #**kwargs
-        )
-        # setKwargs(self, **kwargs)
-        
-    def computeG(self,z,w):
-            logG = (self.beta/(2.*(self.kneighbors+1))) * ((z[self.indexpoint] + w[self.indexpoint]).sum(axis=1))
-            
-            return logG
-        
-    def computeB(self, A):
-        beta2 = np.zeros(A.shape[1])
-        for k in range(A.shape[1]):
-            beta2[k] = ((A[:,k][self.indexpoint[:,1:]]- Utils.mkvc(A[:,k],numDims=2))**2.).sum()/self.mesh.nC
-        print(beta2)
-        return beta2
-
-    def computeA(self, A, z, beta):
-        perm = np.random.permutation(self.mesh.nC)
-        for i in perm:
-            for j in range(self.n_components):
-                notjindx = np.where(np.linspace(0,j,j,endpoint=False,dtype='int') != j)
-                Aij = A[i,notjindx].sum()
-                amj = A[self.indexpoint[i,1:],j].sum()
-                coeff2 = Aij - ( amj / self.kneighbors )
-                coeff1 = Aij * amj / self.kneighbors
-                coeff0 = - 0.5 * z[i,j] * Aij * beta[j] / self.kneighbors
-                roots = np.roots(np.r_[1., coeff2, coeff1, coeff0])
-                roots = roots[np.isreal(roots)]
-                roots = np.real(roots)
-                A[i,j] = np.r_[0.,np.real(roots)].max()
-                    
-        return A
-                    
-    def _m_step(self, X, log_resp):
-        """M step.
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-        log_resp : array-like, shape (n_samples, n_components)
-            Logarithm of the posterior probabilities (or responsibilities) of
-            the point of each sample in X.
-        """
-        n_samples, _ = X.shape
-        _ , self.means_, self.covariances_ = (
-            self._estimate_gaussian_parameters(X, np.exp(log_resp), self.reg_covar,self.covariance_type)
-        )
-        #self.weights_ /= n_samples
-        self.precisions_cholesky_ = _compute_precision_cholesky(
-            self.covariances_, self.covariance_type)
-        
-        logweights = logsumexp(np.c_[[log_resp, self.computeG(np.exp(log_resp),self.weights_)]],axis=0)
-        logweights = logweights - logsumexp(logweights,axis=1,keepdims=True)
-        self.weights_= np.exp(logweights)
-           
-    def _estimate_gaussian_parameters(self, X, resp, reg_covar, covariance_type):
-        """Estimate the Gaussian distribution parameters.
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-            The input data array.
-        resp : array-like, shape (n_samples, n_components)
-            The responsibilities for each data sample in X.
-        reg_covar : float
-            The regularization added to the diagonal of the covariance matrices.
-        covariance_type : {'full', 'tied', 'diag', 'spherical'}
-            The type of precision matrices.
-        Returns
-        -------
-        nk : array-like, shape (n_components,)
-            The numbers of data samples in the current components.
-        means : array-like, shape (n_components, n_features)
-            The centers of the current components.
-        covariances : array-like
-            The covariance matrix of the current components.
-            The shape depends of the covariance_type.
-        """
-        nk = resp.sum(axis=0) + 10 * np.finfo(resp.dtype).eps
-        means = np.dot(resp.T, X) / nk[:, np.newaxis]
-        covariances = {"full": _estimate_gaussian_covariances_full,
-                   "tied": _estimate_gaussian_covariances_tied,
-                   "diag": _estimate_gaussian_covariances_diag,
-                   "spherical": _estimate_gaussian_covariances_spherical
-                   }[covariance_type](resp, X, nk, means, reg_covar)
-        return resp, means, covariances
-    
-    def _check_weights(self,weights, n_components,n_samples):
-        """Check the user provided 'weights'.
-        Parameters
-        ----------
-        weights : array-like, shape (n_components,)
-            The proportions of components of each mixture.
-        n_components : int
-            Number of components.
-        Returns
-        -------
-        weights : array, shape (n_components,)
-        """
-        weights = check_array(weights, dtype=[np.float64, np.float32],
-                          ensure_2d=True)
-        _check_shape(weights, (n_components,n_samples), 'weights')
-        
-    def _check_parameters(self, X):
-        """Check the Gaussian mixture parameters are well defined."""
-        n_samples, n_features = X.shape
-        if self.covariance_type not in ['spherical', 'tied', 'diag', 'full']:
-            raise ValueError("Invalid value for 'covariance_type': %s "
-                             "'covariance_type' should be in "
-                             "['spherical', 'tied', 'diag', 'full']"
-                             % self.covariance_type)
-
-        if self.weights_init is not None:
-            self.weights_init = self._check_weights(self.weights_init,
-                                               n_samples,
-                                               self.n_components)
-
-        if self.means_init is not None:
-            self.means_init = _check_means(self.means_init,
-                                           self.n_components, n_features)
-
-        if self.precisions_init is not None:
-            self.precisions_init = _check_precisions(self.precisions_init,
-                                                     self.covariance_type,
-                                                     self.n_components,
-                                                     n_features)
-            
-    def _initialize(self, X, resp):
-        """Initialization of the Gaussian mixture parameters.
-        Parameters
-        ----------
-        X : array-like, shape (n_samples, n_features)
-        resp : array-like, shape (n_samples, n_components)
-        """
-        n_samples, _ = X.shape
-
-        weights, means, covariances = self._estimate_gaussian_parameters(
-            X, resp, self.reg_covar, self.covariance_type)
-        weights /= n_samples
-
-        self.weights_ = (weights*np.ones((n_samples,self.n_components)) if self.weights_init is None
-                         else self.weights_init)
-        self.means_ = means if self.means_init is None else self.means_init
-
-        if self.precisions_init is None:
-            self.covariances_ = covariances
-            self.precisions_cholesky_ = _compute_precision_cholesky(
-                covariances, self.covariance_type)
-        elif self.covariance_type == 'full':
-            self.precisions_cholesky_ = np.array(
-                [linalg.cholesky(prec_init, lower=True)
-                 for prec_init in self.precisions_init])
-        elif self.covariance_type == 'tied':
-            self.precisions_cholesky_ = linalg.cholesky(self.precisions_init,
-                                                        lower=True)
-        else:
-            self.precisions_cholesky_ = self.precisions_init
 
 
 
@@ -421,7 +446,7 @@ mapactive = maps.InjectActiveCells(
 
 )
 mapping = expmap * mapactive
-simulation = dc.simulation_2d.Simulation2DNodal(
+simulation = dc.Simulation2DNodal(
     
     mesh, 
     survey=survey, 
@@ -483,26 +508,39 @@ plt.show()
 
 # plt.show()
 
+# Set the initial model to the true background mean
+m0 = -np.log(100.0) * np.ones(mapping.nP)
+mref = m0
+#m0 = m_pgi_nguyen
+#mref = reg_nguyen.objfcts[0].mref
+
 
 # -----------------------------------------------------------------------
 
 # carry out PGI inversion with GMMRF
 n = 4
 #
+
+print(actcore.sum(), actcore.shape, m0.shape)
 clf_nguyen = GaussianMixtureMarkovRandomField(
     n_components=n, 
-    mesh=mesh,
+    mesh=meshCore,
     kneighbors=24,
     covariance_type='full',
 )
-clf_nguyen.fit(dat.reshape(-1,1))
+clf_nguyen.fit(m0.reshape(-1,1))
 
-
-# Set the initial model to the true background mean
-m0 = -np.log(100.0) * np.ones(mapping.nP)
-mref = m0
-#m0 = m_pgi_nguyen
-#mref = reg_nguyen.objfcts[0].mref
+# Manually setting the GMM parameters
+## Order cluster by order of importance
+clf_nguyen.order_clusters_GM_weight()
+## Set cluster means
+clf_nguyen.means_ = np.r_[-np.log(100.0), -np.log(50.0), -np.log(250.0), -np.log(10)][:, np.newaxis]
+## Set clusters variance
+clf_nguyen.covariances_ = np.array([[[0.005]],[[0.01]], [[0.005]],[[0.005]]])
+##Set clusters precision and Cholesky decomposition from variances
+clf_nguyen.compute_clusters_precisions()
+# clf_nguyen.weights_ = np.ones_like(clf_nguyen.weights_) * clf.weights_
+clf_nguyen.weights_ /= clf_nguyen.weights_.sum(axis=1)[:,np.newaxis]
 
 # Create data misfit object
 dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
@@ -512,9 +550,22 @@ idenMap = maps.IdentityMap(nP=m0.shape[0])
 wires = maps.Wires(("m", m0.shape[0]))
 ## By default the PGI regularization uses the least-squares approximation. 
 ## It requires then the directives.GaussianMixtureUpdateModel() 
-reg_mean_potts = regularization.SimplePGI(
-    gmmref=clf_nguyen,#reg_nguyen.objfcts[0].gmm, 
-    mesh=mesh, wiresmap=wires, maplist=[idenMap], mref=mref, indActive=actcore
+# reg_mean_potts = regularization.SimplePGI(
+#     gmmref=clf_nguyen,#reg_nguyen.objfcts[0].gmm, 
+#     mesh=mesh, wiresmap=wires, maplist=[idenMap], mref=mref, indActive=actcore
+# )
+cell_weights_list = [np.ones(m0.shape[0])]
+reg_mean_potts = utils.make_PGI_regularization(
+    gmmref=clf_nguyen,
+    mesh=mesh,
+    wiresmap=wires,
+    maplist=[idenMap],
+    indActive=actcore,
+    alpha_s=1,
+    alpha_x=[1.0],
+    alpha_y=[1.0],
+    mref=mref,
+    cell_weights_list=cell_weights_list,
 )
 
 # Regularization Weighting
