@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 from pymatsolver import PardisoSolver
 from scipy.stats import norm
 
-from PGI_DC_example_Utils import plot_pseudoSection, getCylinderPoints
+# from PGI_DC_example_Utils import plot_pseudoSection, getCylinderPoints
 from skimage import data, color
 from skimage.transform import  rescale, resize, downscale_local_mean
 import scipy.ndimage as ndi
@@ -57,7 +57,7 @@ plt.imshow(dat,cmap = 'gray')
 
 #
 
-n=3
+n=5
 clf = GaussianMixture(n_components=n,  covariance_type='full')
 clf.fit(dat.reshape(-1, 1))
 

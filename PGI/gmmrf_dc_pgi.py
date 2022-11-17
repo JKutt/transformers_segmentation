@@ -65,12 +65,12 @@ class Plot_mref(directives.InversionDirective):
         #plt.colorbar(mm[0])
         utils.plot2Ddata(
             meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
-             contourOpts={'alpha':0},
-             #clim=[0,5],
-             ax=ax,
-             level=True,
-             ncontour=2,
-             levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
+            contourOpts={'alpha':0},
+            #clim=[0,5],
+            ax=ax,
+            level=True,
+            ncontour=2,
+            levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
             method='nearest'
         )
         plt.show()
@@ -396,7 +396,7 @@ srclist = []
 
 for dipole in np.linspace(25,250,10):
     
-    survey1 = dcutils.gen_DCIPsurvey(
+    survey1 = dcutils.generate_dcip_survey(
         
         endl, survey_type="dipole-dipole",
         dim=mesh.dim,
@@ -470,25 +470,33 @@ plt.show()
 # plt.show()
 
 # Plot the histogram of the data
-fig, ax = plt.subplots(1,1,figsize=(10,5))
-hist, edges = np.histogram(-np.log(((DCutils.apparent_resistivity(dc_data)))),bins=50, density=False)
-ax.bar(1./np.exp(edges[:-1]), hist, width=np.diff(1./np.exp(edges)), ec="k", align="edge",color='#8172B3');
-ax.grid(True,which='both')
-ax.grid(True,which="both",ls="-")
+# fig, ax = plt.subplots(1,1,figsize=(10,5))
+# hist, edges = np.histogram(-np.log(((dcutils.apparent_resistivity_from_voltage(dc_data)))),bins=50, density=False)
+# ax.bar(1./np.exp(edges[:-1]), hist, width=np.diff(1./np.exp(edges)), ec="k", align="edge",color='#8172B3');
+# ax.grid(True,which='both')
+# ax.grid(True,which="both",ls="-")
 
-ax.set_xlabel('Data: Apparent Resistivity (Ohm-m)',fontsize=16)
-ax.tick_params(labelsize=14)
-ax.set_ylabel('Occurences',fontsize=16)
-ax.set_xticks(np.r_[10,20,50,75,100,125,150])
+# ax.set_xlabel('Data: Apparent Resistivity (Ohm-m)',fontsize=16)
+# ax.tick_params(labelsize=14)
+# ax.set_ylabel('Occurences',fontsize=16)
+# ax.set_xticks(np.r_[10,20,50,75,100,125,150])
 
-plt.show()
+# plt.show()
 
 
 # -----------------------------------------------------------------------
 
 # carry out PGI inversion with GMMRF
-
+n = 4
 #
+clf_nguyen = GaussianMixtureMarkovRandomField(
+    n_components=n, 
+    mesh=mesh,
+    kneighbors=24,
+    covariance_type='full',
+)
+clf_nguyen.fit(dat.reshape(-1,1))
+
 
 # Set the initial model to the true background mean
 m0 = -np.log(100.0) * np.ones(mapping.nP)
@@ -568,14 +576,14 @@ Pottmatrix[-1,-1] = 1e0
 #anisotropy[0][0] = 10
 #print(anisotropy)
 
-smoothref = directives.PGI_GMMRF_IsingModel(
-    neighbors=18, verbose=True,
-    max_probanoise=1e-3,
-    maxit_factor=5.,
-    # maxit=2*mesh.nC,
-    Pottmatrix=Pottmatrix,
-    anisotropies = {'anisotropy':[anis_vertical,anisotropy,anisotropy,anis_dike],'norm':[2,2,2,2]}#clf_nguyen.index_anisotropy
-)
+# smoothref = directives.PGI_GMMRF_IsingModel(
+#     neighbors=18, verbose=True,
+#     max_probanoise=1e-3,
+#     maxit_factor=5.,
+#     # maxit=2*mesh.nC,
+#     Pottmatrix=Pottmatrix,
+#     anisotropies = {'anisotropy':[anis_vertical,anisotropy,anisotropy,anis_dike],'norm':[2,2,2,2]}#clf_nguyen.index_anisotropy
+# )
 
 plot_mref = Plot_mref()
 
@@ -590,7 +598,7 @@ inv = inversion.BaseInversion(
         petrodir,
         targets,
         beta_alpha_iteration,
-        smoothref,
+        # smoothref,
         MrefInSmooth,
         update_Jacobi,
         plot_mref,
