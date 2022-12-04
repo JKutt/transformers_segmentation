@@ -115,14 +115,51 @@ class jmesh:
              sp.kron(sp.diags(h3, [0]), sp.kron(sp.eye(n2 + 1), sp.diags(h1, [0]))).diagonal(),
              sp.kron(sp.eye(n3 + 1), sp.kron(sp.diags(h2, [0]),sp.diags(h1, [0]))).diagonal()]).toarray(), [0])
         
-        # L = sp.hstack(
-        #     [sp.diags(
-        #         [sp.diags(sp.kron(sp.eye(n3 + 1), sp.kron(sp.eye(n2 + 1), sp.diags(h1, [0]))), [0]),
-        #         sp.diags(sp.kron(sp.eye(n3 + 1), sp.kron(sp.diags(h2, [0]), sp.eye(n1 + 1)))),
-        #         sp.diags(sp.kron(sp.diags(h3, [0]), sp.kron(sp.eye(n2 + 1), sp.eye(n1 + 1))),[0])], [0])]
-        #  )
+        L = sp.diags(sp.hstack([
+            sp.kron(sp.eye(n3 + 1), sp.kron(sp.eye(n2 + 1), sp.diags(h1, [0]))).diagonal(),
+            sp.kron(sp.eye(n3 + 1), sp.kron(sp.diags(h2, [0]), sp.eye(n1 + 1))).diagonal(),
+            sp.kron(sp.diags(h3, [0]), sp.kron(sp.eye(n2 + 1), sp.eye(n1 + 1))).diagonal()])
+         )
         
-        return F
+        return V, F, L
+
+    def getFaceToCellCenterMatrix(self):
+
+        n1,n2,n3 = self.n1, self.n2, self.n3
+        
+        def av(n):
+            return sp.spdiags((np.ones([n+1,1])*np.array([0.5,0.5])).T,[0,1],n,n+1)
+                
+        A1 = sp.kron(sp.eye(n3),sp.kron(sp.eye(n2),av(n1)))
+        A2 = sp.kron(sp.eye(n3),sp.kron(av(n2),sp.eye(n1)))
+        A3 = sp.kron(av(n3),sp.kron(sp.eye(n2),sp.eye(n1)))
+        # average from faces to cell-centers
+        Afc = sp.hstack([A1, A2, A3])
+
+        return Afc
+
+    def getEdgeToCellCenterMatrix():
+
+        def av(n):
+            return sp.spdiags((np.ones([n+1,1])*np.array([0.5,0.5])).T,[0,1],n,n+1)
+    
+        A1 = sp.kron(av(n3),sp.kron(av(n2),sp.eye(n1)))
+        A2 = sp.kron(av(n3),sp.kron(sp.eye(n2),av(n1)))
+        A3 = sp.kron(sp.eye(n3),sp.kron(av(n2),av(n1)))
+        
+        # average from edge to cell-centers
+        Aec = sp.hstack([A1,A2,A3])
+        
+        return Aec
+    
+    def getNodalToCellCenterMatrix():
+        
+        def av(n):
+            return sp.spdiags((np.ones([n+1,1])*np.array([0.5,0.5])).T,[0,1],n,n+1)
+            
+        Anc = sp.kron(av(n3), sp.kron(av(n2),av(n1)))
+
+        return Anc
 
 
 n1=4
@@ -136,6 +173,10 @@ mesh = jmesh(n1, n2, n3, h1, h2, h3)
 # print(sp.hstack([sp.kron(sp.diags(h3.T, [0]), sp.kron(sp.diags(h2.T, [0]), sp.eye(n1+1))).diagonal(),
 #              sp.kron(sp.diags(h3.T, [0]), sp.kron(sp.eye(n2 + 1), sp.diags(h1.T, [0]))).diagonal(),
 #              sp.kron(sp.eye(n3 + 1), sp.kron(sp.diags(h2.T, [0]),sp.diags(h1.T, [0]))).diagonal()]).toarray())
-print(mesh.getMeshGeometry())
+L = mesh.getMeshGeometry()
+
+print(L)
+# plt.spy(mesh.getMeshGeometry())
+# plt.show()
 # print(sp.kron(sp.diags(h3.T, [0]), sp.kron(sp.eye(n2 + 1), sp.diags(h1.T, [0]))).diagonal())
 #  sp.kron(sp.diags(h2.T, 1), sp.diags(h1.T, 1)))
