@@ -129,19 +129,40 @@ class magnetics(nn.Module):
         Dz = self.h[2]
         dV = torch.prod(self.h)
         Z = Dz/2
+        zeta = mu_0 / (4 * np.pi)
         M  = torch.zeros(self.dim[0], self.dim[1], self.dim[2], device=self.device)
         #Mw  = torch.zeros(self.dim[0], self.dim[1], self.dim[2], device=self.device)
         
         for i in range(M.shape[-1]):
+
+            # calculate the response the layer of the model
             P, center, Rf = self.psfLayer(Z)
+            
+            # use centers and the response and shift the data for FD operations
+            S = torch.fft.fftshift(torch.roll(P, shifts=center, dims=[0,1]))
 
-            S = torch.fft.fft2(torch.roll(P, shifts=center, dims=[0,1])).unsqueeze(0).unsqueeze(0)
-            B = torch.real(torch.fft.fft2(S * torch.fft.ifft2(torch.roll(I, shifts=center, dims=[0,1])))) 
+            # take the fft
+            S = torch.fft.fft2(S)
+
+            # shift again to swap quadrants
+            S = torch.fft.fftshift(S)
+
+            # do the same to model tensor
+            I_fft = torch.fft.fftshift(I)
+            I_fft = torch.fft.fft2(I_fft)
+            I_fft = torch.fft.fftshift(I_fft)
+
+            # perform the FD operations
+            B = torch.fft.fftshift(S * I_fft)
+
+            # convert back to spatial domain
+            B = torch.real(torch.fft.ifft2(B))
+
+            # add the data response from the layer
             M[:,:,i] = B
-
             Z = Z + Dz
-
-        return M*dV
+        
+        return M*zeta*dV
 
     def depthWeighting(self, I):
         
@@ -205,26 +226,26 @@ class magnetics(nn.Module):
 # if False:
 time_s = time()
 # Adjoint test
-dim = torch.tensor([1024,1024,512])
+dim = torch.tensor([512,512,256])
 h = torch.tensor([100.0, 100.0, 100.0])
 dirs = torch.tensor([np.pi/2, np.pi/2, np.pi/2, np.pi/2])
 forMod = magnetics(dim, h, dirs)
 
 M = torch.ones(dim[0], dim[1], dim[2], device='cuda') * 0.0
 # M[600:800, 600:800, 100:400] = 0.1
-M[400:600, 400:600, 100:400] = 0.1
+M[200:300, 200:300, 10:100] = 0.01
 
 D = forMod(M)
-# Q = torch.randn_like(D)
-# W = forMod.adjoint(Q)
+Q = torch.randn_like(D)
+W = forMod.adjoint(Q)
 
-# print(torch.sum(M*W), torch.sum(D*Q))
-
+print(torch.sum(M*W), torch.sum(D*Q))
+print(W.shape)
 print(f'Done: {time() - time_s} seconds')
 
 # Ma = forMod.adjoint(D) 
-# plt.imshow(D.view(1024, 1024).cpu().detach().numpy(), cmap='rainbow')
-plt.imshow(M[:, 512, :].view(1024, 512).T.cpu().detach().numpy(), cmap='rainbow')
-plt.title('Centerd Block depth view I=90 D=90 degrees')
+plt.imshow(W[:, :, 50].view(512, 512).cpu().detach().numpy(), cmap='rainbow')
+# # plt.imshow(M[:, 512, :].view(1024, 512).T.cpu().detach().numpy(), cmap='rainbow')
+# plt.title('Centerd Block depth view I=90 D=90 degrees')
 plt.colorbar()
 plt.show()
