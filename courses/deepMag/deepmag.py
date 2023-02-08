@@ -1,9 +1,10 @@
 import os, sys
+# os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
 import torch
 import numpy as np
 import scipy as sp
-import scipy.sparse as sparse
 from scipy.constants import mu_0
+import scipy.sparse as sparse
 import matplotlib.pyplot as plt
 import math
 import torch.nn as nn
@@ -16,7 +17,6 @@ import torchvision
 from torch.utils.data.dataloader import DataLoader
 import matplotlib.pyplot as plt
 from time import time
-
 
 class pytorch_mesh():
 
@@ -48,45 +48,38 @@ class pytorch_mesh():
 
 
 class magnetics(nn.Module):
+    
     def __init__(self, dim, h, dirs, device='cuda'):
         super(magnetics, self).__init__()
         self.dim    = dim   # Mesh size [nx, ny, nz]
         self.h      = h     # cell size [Dx, Dy, Dz]
         self.dirs   = dirs  # magnetic field directions [A, I, A0, I0]
         self.device = device 
-
-
-    def forward_old(self, M):
-        # Solve the forward problem using FFT
-        Dz = self.h[2]
-        Z  = Dz/2
         dV = torch.prod(self.h)
-        Data = 0 
-        for i in range(M.shape[-1]):
-            I = M[:,:,i]
-            P, center, Rf = self.psfLayer(Z)
-            
-            S = torch.fft.fft2(torch.roll(P, shifts=center, dims=[0,1])).unsqueeze(0).unsqueeze(0)
-            B = torch.real(torch.fft.ifft2(S * torch.fft.fft2(I))) 
-            Data = Data+B
-            Z = Z + Dz
-        return Data*dV
+        mu_0 = 4*np.pi*1e-7
+        zeta = mu_0 / (4 * np.pi)
+        self.mudV = zeta*dV
+
+    def fft_kernel(self, P, center):
+            # use centers and the response and shift the data for FD operations
+            S = torch.fft.fftshift(torch.roll(P, shifts=center, dims=[0,1]))
+            # take the fft
+            S = torch.fft.fft2(S)
+            # shift again to swap quadrants
+            S = torch.fft.fftshift(S)
+            return S
 
     def forward(self, M):
         """
-
             Solve the forward problem using FFT
-
             :param M: model
             :type M: Tensor
-        
         """
         
         # define the constants
         Dz = self.h[2]
         Z  = Dz/2
-        dV = torch.prod(self.h)
-        zeta = mu_0 / (4 * np.pi)
+        
         Data = 0 
         
         # loop through each layer of the model
@@ -99,13 +92,7 @@ class magnetics(nn.Module):
             P, center, Rf = self.psfLayer(Z)
             
             # use centers and the response and shift the data for FD operations
-            S = torch.fft.fftshift(torch.roll(P, shifts=center, dims=[0,1]))
-
-            # take the fft
-            S = torch.fft.fft2(S)
-
-            # shift again to swap quadrants
-            S = torch.fft.fftshift(S)
+            S = self.fft_kernel(P, center)
 
             # do the same to model tensor
             I_fft = torch.fft.fftshift(I)
@@ -113,7 +100,8 @@ class magnetics(nn.Module):
             I_fft = torch.fft.fftshift(I_fft)
 
             # perform the FD operations
-            B = torch.fft.fftshift(S * I_fft)
+            B = S * I_fft
+            B = torch.fft.fftshift(B)
 
             # convert back to spatial domain
             B = torch.real(torch.fft.ifft2(B))
@@ -122,67 +110,48 @@ class magnetics(nn.Module):
             Data = Data+B
             Z = Z + Dz
         
-        return Data*zeta*dV
+        return self.mudV * Data
+    
+    def adjoint_a(self, I):
+        # Adjoint for testing
+        a = torch.ones(self.dim[0], self.dim[1], self.dim[2], requires_grad=True, device=self.device)
+        d = self.forward(a)
+        b = torch.sum(d*I)
+        out = grad(b,a)[0]
+        return out
 
     def adjoint(self, I):
         
         Dz = self.h[2]
-        dV = torch.prod(self.h)
+        
         Z = Dz/2
-        zeta = mu_0 / (4 * np.pi)
         M  = torch.zeros(self.dim[0], self.dim[1], self.dim[2], device=self.device)
-        #Mw  = torch.zeros(self.dim[0], self.dim[1], self.dim[2], device=self.device)
         
         for i in range(M.shape[-1]):
 
             # calculate the response the layer of the model
             P, center, Rf = self.psfLayer(Z)
-            
             # use centers and the response and shift the data for FD operations
-            S = torch.fft.fftshift(torch.roll(P, shifts=center, dims=[0,1]))
-
-            # take the fft
-            S = torch.fft.fft2(S)
-
-            # shift again to swap quadrants
-            S = torch.fft.fftshift(S)
+            S = self.fft_kernel(P, center)
 
             # do the same to model tensor
-            I_fft = torch.fft.fftshift(I)
-            I_fft = torch.fft.fft2(I_fft)
+            I_fft = torch.fft.fft2(I)
             I_fft = torch.fft.fftshift(I_fft)
 
             # perform the FD operations
-            B = torch.fft.fftshift(S * I_fft)
+            B = torch.adjoint(S) * I_fft
 
             # convert back to spatial domain
+            B = torch.fft.fftshift(B)
             B = torch.real(torch.fft.ifft2(B))
-
+            B = torch.fft.fftshift(B)
+            
             # add the data response from the layer
             M[:,:,i] = B
             Z = Z + Dz
         
-        return M*zeta*dV
-
-    def depthWeighting(self, I):
-        
-        Dz = self.h[2]
-        dV = torch.prod(self.h)
-        Z = Dz/2
-        M = torch.zeros_like(I)
-        
-        for i in range(I.shape[-1]):
-            _, center, Rf = self.psfLayer(Z)
-
-            S = torch.fft.fft2(torch.roll(Rf, shifts=center, dims=[0,1])).unsqueeze(0).unsqueeze(0)
-            B = torch.real(torch.fft.fft2(S * torch.fft.ifft2(I))) 
-            M[:,:,i] = B
-
-            Z = Z + Dz
-
-        return M*dV
-
-
+        return self.mudV*M
+    
     def psfLayer(self, Z):
          #I is the magnetization dip angle 
          # A is the magnetization deflection angle
@@ -223,29 +192,48 @@ class magnetics(nn.Module):
         
         return PSF, center, Rf
 
-# if False:
-time_s = time()
-# Adjoint test
-dim = torch.tensor([512,512,256])
-h = torch.tensor([100.0, 100.0, 100.0])
-dirs = torch.tensor([np.pi/2, np.pi/2, np.pi/2, np.pi/2])
-forMod = magnetics(dim, h, dirs)
+if True:
 
-M = torch.ones(dim[0], dim[1], dim[2], device='cuda') * 0.0
-# M[600:800, 600:800, 100:400] = 0.1
-M[200:300, 200:300, 10:100] = 0.01
+    #time_s = time()
+    
+    # Adjoint test
+    adjoint_test = True
+    
+    dim = torch.tensor([1024,1024,512])
+    h = torch.tensor([100.0, 100.0, 100.0])
+    dirs = torch.tensor([np.pi/2, np.pi/2, np.pi/2, np.pi/2])
+    forMod = magnetics(dim, h, dirs)
 
-D = forMod(M)
-Q = torch.randn_like(D)
-W = forMod.adjoint(Q)
+    # set the magnetization model
+    M = torch.ones(dim[0], dim[1], dim[2], device='cuda') * 0.0
+    # M[600:800, 600:800, 100:400] = 0.1
+    M[400:600, 400:600, 100:400] = 0.1
 
-print(torch.sum(M*W), torch.sum(D*Q))
-print(W.shape)
-print(f'Done: {time() - time_s} seconds')
+    D = forMod(M)
 
-# Ma = forMod.adjoint(D) 
-plt.imshow(W[:, :, 50].view(512, 512).cpu().detach().numpy(), cmap='rainbow')
-# # plt.imshow(M[:, 512, :].view(1024, 512).T.cpu().detach().numpy(), cmap='rainbow')
-# plt.title('Centerd Block depth view I=90 D=90 degrees')
-plt.colorbar()
-plt.show()
+    #print(f'Done: {time() - time_s} seconds')
+
+    plt.imshow(D.view(1024, 1024).cpu().detach().numpy(), cmap='rainbow')
+    # plt.imshow(M[:, 512, :].view(1024, 512).T.cpu().detach().numpy(), cmap='rainbow')
+    plt.title('Centerd Block I=90 D=90 degrees')
+    plt.colorbar()
+    plt.show()
+
+    # Adjoint test
+    if adjoint_test:
+        dim = torch.tensor([1024,1024,64])
+        h = torch.tensor([100.0, 100.0, 100.0])
+        dirs = torch.tensor([np.pi/4, np.pi/4, np.pi/4, np.pi/4])
+        forMod = magnetics(dim, h, dirs)
+
+        M = torch.rand(dim[0], dim[1], dim[2], device='cuda')
+        D = forMod(M)
+        Q = torch.rand_like(D)
+        W = forMod.adjoint(Q)
+        Wa = forMod.adjoint_a(Q)
+
+        print('Adjoint test 1', torch.sum(M*W).item(), torch.sum(D*Q).item())
+        print('Adjoint test 2', (W-Wa).norm()/Wa.norm())
+        
+
+    print('Done')
