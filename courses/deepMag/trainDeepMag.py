@@ -21,7 +21,7 @@ import solvers
 dim = torch.tensor([128,128,64])
 h = torch.tensor([100.0, 100.0, 100.0])
 dirs = torch.tensor([np.pi/2, np.pi/2, np.pi/2, np.pi/2])
-forMod = MF.magnetics(dim, h, dirs, device='cpu')
+forMod = MF.magnetics(dim, h, dirs, device='cuda')
 #forMod = MF.testFM(dim, h, dirs, device='cpu')
 
 n1 = 128
@@ -35,17 +35,21 @@ jmesh = tmesh.torch_mesh(h1, h2, h3)
 mapping = IdentityMap(mesh=jmesh, nP=jmesh.number_of_cells)
 
 # set the magnetization model
-M = torch.ones(dim[0], dim[1], dim[2], device='cpu') * 0.0
+M = torch.ones(dim[0], dim[1], dim[2], device='cuda') * 0.0
 M[40:60, 40:60, 10:40] = 0.1
 
 D = forMod(M)*1e8
+# Q = torch.rand_like(D)
+# h = forMod.adjoint(Q)
+
+print(f"Data: {D.shape}")
 reg = L2_regularization(jmesh, mapping=mapping, reference_model=M*0)
 
-sol = solvers.CGLS(forMod, reg=reg, CGLSit=100, eps = 1e-5, device='cpu')
+sol = solvers.CGLS(forMod, reg=reg, CGLSit=10, eps = 1e-5, device='cuda')
 
 x, r = sol(D, M*0)
 
 # Ax = b   A Ez = b 
-print('Done: ', x[:, :, 32].shape)
-plt.imshow(M[:, :, 32].T.detach().numpy())
+print('Done: ')
+plt.imshow(x[:, 64, :].cpu().T.detach().numpy())
 plt.show()
