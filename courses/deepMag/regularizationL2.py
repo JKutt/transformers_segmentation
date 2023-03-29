@@ -35,7 +35,7 @@ class L2_regularization(nn.Module):
     ):
         super(L2_regularization, self).__init__()
         self.mesh = mesh
-        self.reference_model = reference_model
+        self.reference_model = reference_model.flatten()
         self._cell_gradient_x = None
         self._cell_gradient_y = None
         self._cell_gradient_z = None
@@ -46,11 +46,13 @@ class L2_regularization(nn.Module):
         # initiate weights
         if weights is None:
 
-            W = torch.ones(mesh.number_of_cells, 1)
+            W = torch.ones(mesh.number_of_cells, 1) * 0.1
 
-        self.Wx = torch.sparse.spdiags(W.T, torch.tensor([0]), (mesh.number_of_cells, torch.prod(torch.tensor(mesh.shape_faces_x())))).coalesce()
-        self.Wy = torch.sparse.spdiags(W.T, torch.tensor([0]), (mesh.number_of_cells, torch.prod(torch.tensor(mesh.shape_faces_y())))).coalesce()
-        self.Wz = torch.sparse.spdiags(W.T, torch.tensor([0]), (mesh.number_of_cells, torch.prod(torch.tensor(mesh.shape_faces_z())))).coalesce()
+        self.Wx = torch.sparse.spdiags(W.T, torch.tensor([0]),
+                                       (mesh.number_of_cells,
+                                         torch.prod(torch.tensor(mesh.shape_faces_x())))).coalesce().to("cuda:0")
+        self.Wy = torch.sparse.spdiags(W.T, torch.tensor([0]), (mesh.number_of_cells, torch.prod(torch.tensor(mesh.shape_faces_y())))).coalesce().to("cuda:0")
+        self.Wz = torch.sparse.spdiags(W.T, torch.tensor([0]), (mesh.number_of_cells, torch.prod(torch.tensor(mesh.shape_faces_z())))).coalesce().to("cuda:0")
 
     
     def forward(self, model):
@@ -62,7 +64,7 @@ class L2_regularization(nn.Module):
 
         model = model.flatten()
 
-        dm = self.delta_m(model)
+        dm = self.delta_m(model).to("cuda:0")
 
         f_m_x = self.Wx @ self.cell_gradient_x() @ dm
         f_m_y = self.Wy @ self.cell_gradient_y() @ dm
@@ -77,13 +79,13 @@ class L2_regularization(nn.Module):
 
         model = model.flatten()
 
-        dm = self.delta_m(model)
+        dm = self.delta_m(model).to("cuda:0")
 
         f_m_x = self.Wx @ self.cell_gradient_x() @ dm
         f_m_y = self.Wy @ self.cell_gradient_y() @ dm
         f_m_z = self.Wz @ self.cell_gradient_z() @ dm
 
-        f_m_d_m = torch.sparse.spdiags(torch.ones(self.mesh.number_of_cells, 1).T, torch.tensor([0]), (self.mesh.number_of_cells, self.mesh.number_of_cells)).coalesce()
+        f_m_d_m = torch.sparse.spdiags(torch.ones(self.mesh.number_of_cells, 1).T, torch.tensor([0]), (self.mesh.number_of_cells, self.mesh.number_of_cells)).coalesce().to("cuda:0")
 
         f_m_deriv_x = self.cell_gradient_x() @ f_m_d_m
         f_m_deriv_y = self.cell_gradient_y() @ f_m_d_m
@@ -184,7 +186,7 @@ class L2_regularization(nn.Module):
 
         self._cell_gradient_x = (
                     self.Pafx().T @ self.mesh.cell_gradient_x() @ self.Pac()
-                )
+                ).to("cuda:0")
         
         return self._cell_gradient_x
 
@@ -198,7 +200,7 @@ class L2_regularization(nn.Module):
 
         self._cell_gradient_y = (
                     self.Pafy().T @ self.mesh.cell_gradient_y() @ self.Pac()
-                )
+                ).to("cuda:0")
         
         return self._cell_gradient_y
 
@@ -212,7 +214,7 @@ class L2_regularization(nn.Module):
 
         self._cell_gradient_z = (
                     self.Pafz().T @ self.mesh.cell_gradient_z() @ self.Pac()
-                )
+                ).to("cuda:0")
         
         return self._cell_gradient_z
     
