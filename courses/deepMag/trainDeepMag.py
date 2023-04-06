@@ -17,6 +17,7 @@ from regularizationL2 import L2_regularization
 from torch_maps import IdentityMap
 import torch_mesh as tmesh
 import solvers
+import ObjectiveFun
 
 dim = torch.tensor([128,128,64])
 h = torch.tensor([100.0, 100.0, 100.0])
@@ -41,15 +42,25 @@ M[40:60, 40:60, 10:40] = 0.1
 D = forMod(M)*1e8
 # Q = torch.rand_like(D)
 # h = forMod.adjoint(Q)
+# D2 = forMod(M*0)*1e8
 
 print(f"Data: {D.shape}")
 reg = L2_regularization(jmesh, mapping=mapping, reference_model=M*0)
 
-sol = solvers.CGLS(forMod, reg=reg, CGLSit=10, eps = 1e-5, device='cuda')
+objfun = ObjectiveFun.ObjectiveFun([forMod, reg])
 
-x, r = sol(D, M*0)
+# plt.plot(objfun(M + 1e-5).cpu().detach().numpy(), 'o')
+# plt.show()
+D = objfun(M*0)
 
-# Ax = b   A Ez = b 
-print('Done: ')
-plt.imshow(x[:, 64, :].cpu().T.detach().numpy())
-plt.show()
+sol = solvers.CGLS(objfun, CGLSit=10, eps = 1e-5, device='cuda')
+
+x, r = sol(D, M + 1e-5)
+
+# # Ax = b   A Ez = b 
+# print('Done: ')
+# plt.imshow(x[:, 64, :].cpu().T.detach().numpy())
+# plt.show()
+
+# plt.imshow(D2.cpu().T.detach().numpy())
+# plt.show()

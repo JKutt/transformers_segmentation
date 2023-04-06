@@ -62,20 +62,17 @@ class L2_regularization(nn.Module):
         
         """
 
-        model = model.flatten()
+        # model = model.flatten()
 
-        dm = self.delta_m(model).to("cuda:0")
+        # dm = self.delta_m(model).to("cuda:0")
 
-        f_m_x = self.Wx @ self.cell_gradient_x() @ dm
-        f_m_y = self.Wy @ self.cell_gradient_y() @ dm
-        f_m_z = self.Wz @ self.cell_gradient_z() @ dm
+        # f_m_x = self.Wx @ self.cell_gradient_x() @ dm
+        # f_m_y = self.Wy @ self.cell_gradient_y() @ dm
+        # f_m_z = self.Wz @ self.cell_gradient_z() @ dm
 
-        r = f_m_x + f_m_y + f_m_z
+        # r = f_m_x + f_m_y + f_m_z
 
-        return 0.5 * r.dot(r)
-
-    
-    def deriv(self, model, v=None):
+        # return 0.5 * r.dot(r)
 
         model = model.flatten()
 
@@ -96,7 +93,89 @@ class L2_regularization(nn.Module):
         r_z = f_m_z
         
         return f_m_deriv_x.T @ (self.Wx.T @ r_x) + f_m_deriv_y.T @ (self.Wy.T @ r_y) + f_m_deriv_z.T @ (self.Wz.T @ r_z)
+
     
+    def adjoint(self, model):
+
+        model = model.flatten()
+        v = v.flatten()
+
+        dm = self.delta_m(model).to("cuda:0")
+
+        f_m_x = self.Wx @ self.cell_gradient_x() @ dm
+        f_m_y = self.Wy @ self.cell_gradient_y() @ dm
+        f_m_z = self.Wz @ self.cell_gradient_z() @ dm
+
+        f_m_d_m = torch.sparse.spdiags(torch.ones(self.mesh.number_of_cells, 1).T, torch.tensor([0]), (self.mesh.number_of_cells, self.mesh.number_of_cells)).coalesce().to("cuda:0")
+
+        f_m_deriv_x = self.cell_gradient_x() @ f_m_d_m
+        f_m_deriv_y = self.cell_gradient_y() @ f_m_d_m
+        f_m_deriv_z = self.cell_gradient_z() @ f_m_d_m
+    
+        r_x = f_m_x
+        r_y = f_m_y
+        r_z = f_m_z
+
+        if v is None:
+            return f_m_deriv_x.T @ (self.Wx.T @ (self.Wx @ (f_m_deriv_x))) + \
+                    f_m_deriv_y.T @ (self.Wy.T @ (self.Wy @ (f_m_deriv_y))) + \
+                    f_m_deriv_z.T @ (self.Wz.T @ (self.Wz @ (f_m_deriv_z)))
+        
+        return f_m_deriv_x.T @ (self.Wx.T @ (self.Wx @ (f_m_deriv_x @ v))) + \
+                f_m_deriv_y.T @ (self.Wy.T @ (self.Wy @ (f_m_deriv_y @ v))) + \
+                f_m_deriv_z.T @ (self.Wz.T @ (self.Wz @ (f_m_deriv_z @ v)))
+
+        # model = model.flatten()
+
+        # dm = self.delta_m(model).to("cuda:0")
+
+        # f_m_x = self.Wx @ self.cell_gradient_x() @ dm
+        # f_m_y = self.Wy @ self.cell_gradient_y() @ dm
+        # f_m_z = self.Wz @ self.cell_gradient_z() @ dm
+
+        # f_m_d_m = torch.sparse.spdiags(torch.ones(self.mesh.number_of_cells, 1).T, torch.tensor([0]), (self.mesh.number_of_cells, self.mesh.number_of_cells)).coalesce().to("cuda:0")
+
+        # f_m_deriv_x = self.cell_gradient_x() @ f_m_d_m
+        # f_m_deriv_y = self.cell_gradient_y() @ f_m_d_m
+        # f_m_deriv_z = self.cell_gradient_z() @ f_m_d_m
+    
+        # r_x = f_m_x
+        # r_y = f_m_y
+        # r_z = f_m_z
+        
+        # return f_m_deriv_x.T @ (self.Wx.T @ r_x) + f_m_deriv_y.T @ (self.Wy.T @ r_y) + f_m_deriv_z.T @ (self.Wz.T @ r_z)
+    
+    
+    def deriv2(self, model, v=None):
+        
+        model = model.flatten()
+        v = v.flatten()
+
+        dm = self.delta_m(model).to("cuda:0")
+
+        f_m_x = self.Wx @ self.cell_gradient_x() @ dm
+        f_m_y = self.Wy @ self.cell_gradient_y() @ dm
+        f_m_z = self.Wz @ self.cell_gradient_z() @ dm
+
+        f_m_d_m = torch.sparse.spdiags(torch.ones(self.mesh.number_of_cells, 1).T, torch.tensor([0]), (self.mesh.number_of_cells, self.mesh.number_of_cells)).coalesce().to("cuda:0")
+
+        f_m_deriv_x = self.cell_gradient_x() @ f_m_d_m
+        f_m_deriv_y = self.cell_gradient_y() @ f_m_d_m
+        f_m_deriv_z = self.cell_gradient_z() @ f_m_d_m
+    
+        r_x = f_m_x
+        r_y = f_m_y
+        r_z = f_m_z
+
+        if v is None:
+            return f_m_deriv_x.T @ (self.Wx.T @ (self.Wx @ (f_m_deriv_x))) + \
+                    f_m_deriv_y.T @ (self.Wy.T @ (self.Wy @ (f_m_deriv_y))) + \
+                    f_m_deriv_z.T @ (self.Wz.T @ (self.Wz @ (f_m_deriv_z)))
+        
+        return f_m_deriv_x.T @ (self.Wx.T @ (self.Wx @ (f_m_deriv_x @ v))) + \
+                f_m_deriv_y.T @ (self.Wy.T @ (self.Wy @ (f_m_deriv_y @ v))) + \
+                f_m_deriv_z.T @ (self.Wz.T @ (self.Wz @ (f_m_deriv_z @ v)))
+
     
     def delta_m(self, model):
 
