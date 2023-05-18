@@ -13,7 +13,7 @@ math:
 
 ## FFT's & Magnetics
 
-Based on [Jianke Qiang et. al, 2019](https://doi.org/10.1016/j.jappgeo.2019.04.009) which forms the magnetic anomaly calculation as a convolution a forward modeling kernel can be written for magnetics utilizing GPU resources allowing for fast computation of large scaled surveys. This is accomplished by utilising Fast Fourier Transforms and matrix multiplications which are highly optimized for GPU operation. In order to do the Fourier calculation, a few pieces of information must be calculated in the spatial domain. First we calculate the geometric term of the magnetic response from a single layer call it $\p$ can be broken into its components $\pfx$, $\pfy$, $\pfz$ represented as:
+Based on [Jianke Qiang et. al, 2019](https://doi.org/10.1016/j.jappgeo.2019.04.009) which forms the magnetic anomaly calculation as a convolution a forward modeling kernel can be written for magnetics utilizing GPU resources allowing for fast computation of large scaled surveys. This is accomplished by utilising Fast Fourier Transforms and matrix multiplications which are highly optimized for GPU operation. In order to do the Fourier calculation, a few pieces of information must be calculated in the spatial domain. First we calculate the geometric term of the magnetic response from a single layer call it $\p_k$ can be broken into its components $\pfx$, $\pfy$, $\pfz$ represented as:
 
 $$
 \label{magPx}
@@ -41,24 +41,19 @@ In [](#magPx), [](#magPy), [](#magPz) variables **X**, **Y** are defined as matr
 $$
 \label{magP}
 \begin{aligned}
-\mathbf{P} = \mathbf{P}_x \cos(I_0) \cos(A_0) + \mathbf{P}_y \cos(I_0) \cos(A_0) + \mathbf{P}_z \sin(I_0)
+\mathbf{P}_k = \mathbf{P}_x \cos(I_0) \cos(A_0) + \mathbf{P}_y \cos(I_0) \cos(A_0) + \mathbf{P}_z \sin(I_0)
 \end{aligned}
 $$
 
-From this, the magnetization data from a single layer of the model can be coupled in the Fourier domain. To calculate the total magnetic response, it is done in following steps:
-1. FFT shift the data in spatial domain.
-2. Take [](#magP) and compute $FFT(\p)$.
-3. FFT shift in the Fourier domain to swap Quadrants [1](https://thepythoncodingbook.com/2021/08/30/2d-fourier-transform-in-python-and-fourier-synthesis-of-images/).
-4. FFT shift the magnetization data $\incli$.
-5. $FFT(\incli)$.
-6. FFT shift to swap quadrants.
-7. Compute the matrix multiplication $\tilde{\p} \cdot \tilde{\incli}$
-8. IFFT shift the components back the original quadrants.
-9. IFFT the product of the matrix mulitplication.
+Matrix [](#magP) is then used to calculate the magnetic response from a single layer. The magnetization of the layer is extracted from the model as $M_k(i, j)$ where *k* is the layer number at depth $Z_k$ of the model. The solution is then represented as:
 
-This is done for every layer in the model and each layer is summed to produce a 2D representation of the response from the subsurface. The total The total magnetic anomaly $\magq$ is then calculated by multiplying the data by constant $C = \frac{\mu_0 \Delta x \Delta y \Delta z}{4\pi}$
+$$
+Q = C \cdot \p_k M_k
+$$
 
-In code the geometric term calculation of a single layer is represented in the following:
+that has the properties of a Toeplitz matrix [](https://doi.org/10.1016/j.jappgeo.2019.04.009). This allows 
+
+In code calculate [](#magP) for a single layer is represented in the following:
 
 ```python
 def psfLayer(self, Z):
@@ -109,6 +104,21 @@ def psfLayer(self, Z):
 
     return PSF, center, Rf
 ```
+
+The output from the above code produces $\p$ and for an entire layer of the model subsurface. each entry in this tensor is the sumation of the each cell in that layer for each observation point on the surface. It is shown that 
+
+From this, the magnetization data from a single layer of the model can be coupled in the Fourier domain. To calculate the total magnetic response, it is done in following steps:
+1. FFT shift the data in spatial domain.
+2. Take [](#magP) and compute $FFT(\p)$.
+3. FFT shift in the Fourier domain to swap Quadrants [1](https://thepythoncodingbook.com/2021/08/30/2d-fourier-transform-in-python-and-fourier-synthesis-of-images/).
+4. FFT shift the magnetization data $\incli$.
+5. $FFT(\incli)$.
+6. FFT shift to swap quadrants.
+7. Compute the matrix multiplication $\tilde{\p} \cdot \tilde{\incli}$
+8. IFFT shift the components back the original quadrants.
+9. IFFT the product of the matrix mulitplication.
+
+This is done for every layer in the model and each layer is summed to produce a 2D representation of the response from the subsurface. The total The total magnetic anomaly $\magq$ is then calculated by multiplying the data by constant $C = \frac{\mu_0 \Delta x \Delta y \Delta z}{4\pi}$
 
 The complete forward kernal for $\magq$ is as follows:
 
@@ -212,7 +222,43 @@ To truly test the FFT based forward kernal more complex models are required. For
 :alt: Image of a noddy 3D model
 :align: center
 
-3D noddyVerse model
+Example of a 3D noddyVerse model
+```
+
+```{figure} ./figures/05-complex7noddy.png
+:name: noddy2d1
+:alt: Image of a noddy 3D model
+:align: center
+
+Example of a 3D noddyVerse model
+```
+
+```{figure} ./figures/04-complex7simulated9090.png
+:height: 480px
+:width: 550px
+:name: noddysim1
+:alt: Image of a noddy 3D model
+:align: center
+
+Example of a 3D noddyVerse model
+```
+
+```{figure} ./figures/08-complex8noddy.png
+:name: noddy2d2
+:alt: Image of a noddy 3D model
+:align: center
+
+Example of a 3D noddyVerse model
+```
+
+```{figure} ./figures/06-complex8simulated9090.png
+:height: 480px
+:width: 550px
+:name: noddysim2
+:alt: Image of a noddy 3D model
+:align: center
+
+Example of a 3D noddyVerse model
 ```
 
 ## Discussion
