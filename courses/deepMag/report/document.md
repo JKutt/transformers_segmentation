@@ -48,12 +48,24 @@ $$
 Matrix [](#magP) is then used to calculate the magnetic response from a single layer. The magnetization of the layer is extracted from the model as $M_k(i, j)$ where *k* is the layer number at depth $Z_k$ of the model. The solution is then represented as:
 
 $$
-Q = C \cdot \p_k M_k
+\label{qk}
+\begin{aligned}
+Q_k = C \cdot \p_k M_k
+\end{aligned}
 $$
 
-that has the properties of a Toeplitz matrix [](https://doi.org/10.1016/j.jappgeo.2019.04.009). This allows 
+Here $\p_k$ is a <wiki:Block_matrix> with entries that are Toeplitz matrices <wiki:Toeplitz_matrix>. Due to the unique symetry of the Toeplitz matrix each entry can be replaced by a vector. This then allows us to calculate [](#qk) in the frequency domain transforming the matrix cross-multiplication into matrix point-multiplication [](https://doi.org/10.1016/j.jappgeo.2019.04.009):
 
-In code calculate [](#magP) for a single layer is represented in the following:
+$$
+\label{qkfft}
+\begin{aligned}
+\tilde{\magq}'_k = \tilde{\p}_k \tilde{M}_k
+\end{aligned}
+$$
+
+To reduce computation time further, the current algorithm can target the GPU by using packages such as [PyTorch](https://doi.org/10.48550/arXiv.1912.01703). GPUs are extremely optimized for mathematical operations. In particular, Fourier transforms and matrix multiplications.  
+
+In code calculate [](#magP) for a single layer $k$ with [](#magPx), [](#magPy), [](#magPz) in the following:
 
 ```python
 def psfLayer(self, Z):
@@ -78,14 +90,14 @@ def psfLayer(self, Z):
     I0   = self.dirs[2]
     A0   = self.dirs[3]
 
-    x = Dx*torch.arange(-dim2[0]+1,dim2[0]+1, device=self.device)
-    y = Dy*torch.arange(-dim2[1]+1,dim2[1]+1, device=self.device)
+    x   = Dx*torch.arange(-dim2[0]+1,dim2[0]+1, device=self.device)
+    y   = Dy*torch.arange(-dim2[1]+1,dim2[1]+1, device=self.device)
     X,Y = torch.meshgrid(x,y)
 
     # Get center ready for fftshift.
     center = [1 - int(dim2[0]), 1 - int(dim2[1])]
 
-    Rf = torch.sqrt(X**2 + Y**2 + Z**2)**5
+    Rf   = torch.sqrt(X**2 + Y**2 + Z**2)**5
     PSFx = (2*X**2 - Y**2 - Z**2)/Rf*torch.cos(I)*torch.sin(A) + \
            3*X*Y/Rf*torch.cos(I)*torch.cos(A) + \
            3*X*Z/Rf*torch.sin(I)
@@ -98,27 +110,39 @@ def psfLayer(self, Z):
            3*Z*Y/Rf*torch.cos(I)*torch.cos(A) +\
            (2*Z**2 - X**2 - Y**2)/Rf*torch.sin(I)
 
-    PSF = PSFx*torch.cos(I0)*torch.cos(A0) + \
+    PSF  = PSFx*torch.cos(I0)*torch.cos(A0) + \
           PSFy*torch.cos(I0)*torch.sin(A0) + \
           PSFz*torch.sin(I0) 
 
     return PSF, center, Rf
 ```
 
-The output from the above code produces $\p$ and for an entire layer of the model subsurface. each entry in this tensor is the sumation of the each cell in that layer for each observation point on the surface. It is shown that 
+The output from the above code produces matrix $\p_k$ and for an entire layer $k$ of the model subsurface. Each entry in this matrix is the summation of the each cell in that layer for each observation point on the surface. Mentioned earlier, the magnetization data from a single layer [](#qk) of the model can be calculated in the Fourier domain [](#qkfft). The calculation is then reduced to:
 
-From this, the magnetization data from a single layer of the model can be coupled in the Fourier domain. To calculate the total magnetic response, it is done in following steps:
+$$
+\label{qkifft}
+\begin{aligned}
+\magq_k = C \cdot \magq'_k = C \cdot IFFT(\tilde{\magq}'_k)
+\end{aligned}
+$$
+
+Where $C = \frac{\mu_0 \Delta x \Delta y \Delta z}{4\pi}$.
+
+To calculate the total magnetic response, the following steps are completed:
 1. FFT shift the data in spatial domain.
-2. Take [](#magP) and compute $FFT(\p)$.
-3. FFT shift in the Fourier domain to swap Quadrants [1](https://thepythoncodingbook.com/2021/08/30/2d-fourier-transform-in-python-and-fourier-synthesis-of-images/).
+2. Take [](#magP) and compute $FFT(\p_k)$.
+3. FFT shift in the Fourier domain to swap Quadrants [](https://thepythoncodingbook.com/2021/08/30/2d-fourier-transform-in-python-and-fourier-synthesis-of-images/).
 4. FFT shift the magnetization data $\incli$.
 5. $FFT(\incli)$.
 6. FFT shift to swap quadrants.
 7. Compute the matrix multiplication $\tilde{\p} \cdot \tilde{\incli}$
 8. IFFT shift the components back the original quadrants.
-9. IFFT the product of the matrix mulitplication.
+9. $IFFT(\tilde{\magq}_k )$ the product of the matrix mulitplication.
+10. Calculate [](#qkifft).
 
-This is done for every layer in the model and each layer is summed to produce a 2D representation of the response from the subsurface. The total The total magnetic anomaly $\magq$ is then calculated by multiplying the data by constant $C = \frac{\mu_0 \Delta x \Delta y \Delta z}{4\pi}$
+Note that $FFT$ shift's are applied frequently in the algorithm. This is done to reorder the content in a way that the matrix operations are computed in the proper order. 
+
+This is done for every layer in the model and each layer is summed to produce a 2D representation of the response from the subsurface. The total The total magnetic anomaly $\magq$ is then calculated by multiplying the data by constant $C$
 
 The complete forward kernal for $\magq$ is as follows:
 
@@ -195,7 +219,7 @@ Using the above kernel, the forward data of a magnetic block in a half space is 
 Buried block model.
 ```
 
-Note that the axis are cell number. Matplotlib’s imshow() was used her for simplicity.
+Note that the axis are cell number. Matplotlib’s `imshow()` was used for for simplicity.
 
 The first forward simulation employed a vertical inducing field.
 
@@ -215,7 +239,7 @@ To compare the output of the kernal, the python package [Choclo](https://doi.org
 
 ## Complex structure simulations
 
-To truly test the FFT based forward kernal more complex models are required. Fortunately [noddyverse](10.5194/essd-14-381-2022) as generated numerous models specifically designed for potential fields simulations. Moving on from simple models, large scale structural and intrusive models.
+To truly test the FFT based forward kernal more complex models are required. Fortunately [noddyverse](10.5194/essd-14-381-2022) as generated numerous models specifically designed for potential fields simulations. Moving on from simple models, large scale structural and intrusive models. With calculations done in the frequency domain objects near the edges can have harmful effects by being repeated in different quadrants ([](https://doi.org/10.1190/tle41070454.1))
 
 ```{figure} ./figures/01-noddymodel3d.png
 :name: noddy3d
@@ -260,6 +284,10 @@ Example of a 3D noddyVerse model
 
 Example of a 3D noddyVerse model
 ```
+
+## Solving with conjugate gradient method
+
+Now with a forward kernal complete, we will want to see if we can minimize a data misfit using a conjugate gradient (CG) method <wiki:Conjugate_gradient_method>. The data misfit is simply defined as the $d_{predicted} - d_{observed}$. The CG algorithm aims to minimize this find a model that fits the data.
 
 ## Discussion
 
