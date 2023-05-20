@@ -6,14 +6,14 @@ math:
   '\pfx'  : '\mathbf{P}_{x}'
   '\pfy'  : '\mathbf{P}_{y}'
   '\pfz'  : '\mathbf{P}_{z}'
-  '\incli': '\mathbf{I}'
+  '\mod': '\mathbf{I}'
 ---
 
 # DeepMagnetics
 
 ## FFT's & Magnetics
 
-Based on [Jianke Qiang et. al, 2019](https://doi.org/10.1016/j.jappgeo.2019.04.009) which forms the magnetic anomaly calculation as a convolution a forward modeling kernel can be written for magnetics utilizing GPU resources allowing for fast computation of large scaled surveys. This is accomplished by utilising Fast Fourier Transforms and matrix multiplications which are highly optimized for GPU operation. In order to do the Fourier calculation, a few pieces of information must be calculated in the spatial domain. First we calculate the geometric term of the magnetic response from a single layer call it $\p_k$ can be broken into its components $\pfx$, $\pfy$, $\pfz$ represented as:
+Based on the work of [Jianke Qiang et. al, 2019](https://doi.org/10.1016/j.jappgeo.2019.04.009) which forms the magnetic anomaly calculation as a convolution a forward modeling kernel can be written for magnetics utilizing GPU resources allowing for fast computation of large scaled surveys. This is accomplished by utilising Fast Fourier Transforms and matrix multiplications which are highly optimized for GPU operation. In order to do the Fourier calculation, a few pieces of information must be calculated in the spatial domain. First we calculate the geometric term of the magnetic response from a single layer call it $\p_k$ can be broken into its components $\pfx$, $\pfy$, $\pfz$ represented as:
 
 $$
 \label{magPx}
@@ -36,7 +36,7 @@ $$
 \end{aligned}
 $$
 
-In [](#magPx), [](#magPy), [](#magPz) variables **X**, **Y** are defined as matrices of all the cell locations. **Z** is the depth location to the single layer being calculated. *I* is the inclination and *A* is declination. Combining these, the total component contribution from a single layer is represented by:
+In [](#magPx), [](#magPy), [](#magPz) variables **X**, **Y** are defined as matrices of all the cell locations. **Z** is the depth location to the single layer being calculated. *I* is the inclination and *A* is declination of the inducing source field. Combining these, the total component contribution from a single layer is represented by:
 
 $$
 \label{magP}
@@ -54,7 +54,7 @@ Q_k = C \cdot \p_k M_k
 \end{aligned}
 $$
 
-Here $\p_k$ is a <wiki:Block_matrix> with entries that are Toeplitz matrices <wiki:Toeplitz_matrix>. Due to the unique symetry of the Toeplitz matrix each entry can be replaced by a vector. This then allows us to calculate [](#qk) in the frequency domain transforming the matrix cross-multiplication into matrix point-multiplication [](https://doi.org/10.1016/j.jappgeo.2019.04.009):
+Here $\p_k$ is a <wiki:Block_matrix> with entries that are each a <wiki:Toeplitz_matrix>. Due to the unique symetry of the Toeplitz matrix each entry can be replaced by a vector. This then allows us to calculate [](#qk) in the frequency domain transforming the matrix cross-multiplication into matrix point-multiplication [](https://doi.org/10.1016/j.jappgeo.2019.04.009):
 
 $$
 \label{qkfft}
@@ -128,23 +128,32 @@ $$
 
 Where $C = \frac{\mu_0 \Delta x \Delta y \Delta z}{4\pi}$.
 
-To calculate the total magnetic response, the following steps are completed:
-1. FFT shift the data in spatial domain.
+When performing the frequency domain multiplication the data are shifted in the original domain to ensure the zero frequency is in the center. This is done by applying the common operator `fftshift` found in most scientific packages (<wiki:Discrete_Fourier_transform>). This ensures that the mathematical operations in the frequency domain are applied appropriately returning the equivalent of the the original matrix cross-multiplication. `fftshift` essentially swaps the quadrants seen in [](#fftshift) transforming to zero frequency centered data in the Fourier domain.
+
+```{figure} ./figures/fftshift.png
+:height: 400px
+:width: 350px
+:name: fftshift
+:alt: Example swapping quadrants with fftshift 
+:align: center
+
+Example swapping quadrants with fftshift ([Stephen Gruppetta, 2021](https://thepythoncodingbook.com/2021/08/30/2d-fourier-transform-in-python-and-fourier-synthesis-of-images/)).
+```
+Pulling alltogether the peices outlined above, to calculate the total magnetic response, the following steps are required:
+1. `fftshift` the data in spatial domain.
 2. Take [](#magP) and compute $FFT(\p_k)$.
-3. FFT shift in the Fourier domain to swap Quadrants [](https://thepythoncodingbook.com/2021/08/30/2d-fourier-transform-in-python-and-fourier-synthesis-of-images/).
-4. FFT shift the magnetization data $\incli$.
-5. $FFT(\incli)$.
-6. FFT shift to swap quadrants.
-7. Compute the matrix multiplication $\tilde{\p} \cdot \tilde{\incli}$
-8. IFFT shift the components back the original quadrants.
+3. `fftshift` in the Fourier domain to swap data positions.
+4. `fftshift` the magnetization data $\mod$.
+5. $FFT(\mod)$.
+6. `fftshift` to swap data positions of $\tilde{\mod}$.
+7. Compute the matrix multiplication $\tilde{\p} \cdot \tilde{\mod}$
+8. `fftshift` the product back the original quadrants.
 9. $IFFT(\tilde{\magq}_k )$ the product of the matrix mulitplication.
 10. Calculate [](#qkifft).
 
-Note that $FFT$ shift's are applied frequently in the algorithm. This is done to reorder the content in a way that the matrix operations are computed in the proper order. 
+This is done for every layer in the model and each layer is summed to produce a 2D representation of the subsurface response. The total magnetic anomaly $\magq_k$ is then calculated by multiplying the data by constant $C$
 
-This is done for every layer in the model and each layer is summed to produce a 2D representation of the response from the subsurface. The total The total magnetic anomaly $\magq$ is then calculated by multiplying the data by constant $C$
-
-The complete forward kernal for $\magq$ is as follows:
+The complete forward kernal for $\magq$ is a simple `for` loop:
 
 ```python
 
@@ -200,6 +209,8 @@ def forward(self, M):
 
     return Data*zeta*dV
 ```
+
+Even with the single python `for` loop, the algorithm can calculate a 536,870,912 cell model at 1,048,576 stations in 4.7 seconds targeting a RTX 3070 8GB GPU. This is impressively fast compare to numerous hours it could take traditional methods ([](https://doi.org/10.1016/j.jappgeo.2019.04.009)).
 
 ## Buried block simulation
 
@@ -287,7 +298,73 @@ Example of a 3D noddyVerse model
 
 ## Solving with conjugate gradient method
 
-Now with a forward kernal complete, we will want to see if we can minimize a data misfit using a conjugate gradient (CG) method <wiki:Conjugate_gradient_method>. The data misfit is simply defined as the $d_{predicted} - d_{observed}$. The CG algorithm aims to minimize this find a model that fits the data.
+Now with a forward kernal complete, we will want to see if we can minimize a data misfit using a conjugate gradient (CG) method <wiki:Conjugate_gradient_method>. The data misfit is simply defined as the $d_{predicted} - d_{observed}$. The CG algorithm aims to minimize this find a model that fits the data. The following code uses the forward kernal to solve a linear system resulting in a best fitting model thats fits the synthetic data:
+
+```python
+class CGLS(nn.Module):
+    def __init__(self, forOp, CGLSit=100, eps = 1e-2, device='cuda'):
+        super(CGLS, self).__init__()
+        self.forOp = forOp
+        self.nCGLSiter = CGLSit
+        self.eps = eps
+
+    def forward(self, b, xref):
+
+        x = xref
+        
+        r = b - self.forOp(x)
+        if r.norm()/b.norm()<self.eps:
+                return x, r
+        s = self.forOp.adjoint(r)
+        
+        # Initialize
+        p      = s
+        norms0 = torch.norm(s)
+        gamma  = norms0**2
+
+        misfit = []
+
+        for k in range(self.nCGLSiter):
+    
+            q = self.forOp(p) 
+            delta = torch.norm(q)**2
+            alpha = gamma / delta
+    
+            x     = x + alpha*p
+            r     = r - alpha*q
+
+            print(k, r.norm().item()/b.norm().item())
+            misfit.append(r.norm().item()/b.norm().item())
+            if r.norm()/b.norm()<self.eps:
+                return x, r, misfit
+       
+            s = self.forOp.adjoint(r)
+        
+            norms  = torch.norm(s)
+            gamma1 = gamma
+            gamma  = norms**2
+            beta   = gamma / gamma1
+            p      = s + beta*p
+     
+        return x, r, misfit
+
+```
+
+```{figure} ./figures/09-cgiterations.png
+:name: cg
+:alt: Image of a CG iterations
+:align: center
+
+Conjugate gradient solving linear system convergence.
+```
+
+```{figure} ./figures/10-cgsolvemodel.png
+:name: cgsolution
+:alt: Image of a CG solution model
+:align: center
+
+Conjugate gradient recovered model.
+```
 
 ## Discussion
 
