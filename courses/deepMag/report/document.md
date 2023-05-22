@@ -13,11 +13,11 @@ math:
 
 ## Abstract
 
-Based on the success of the graphical processing unit (GPU) in machine learning, this performance can be applied to linear problems in geophysics. In particular, the magnetics simulation can be formulated to target the GPU. With this large scaled simulations can be computed in a practical amount of time. In the following document the FFT formulated kernel with modest GPU a 1024 X 1024 receiver coverage can calculate the forward simulation in seconds. Traditional kernels would take a lot of resources and need to be highly distributed to accomplish these speeds. Starting from an already fast kernel, the fully distributed system has potential of highly parallel and fast simulated results.
+Based on the impact the graphical processing unit (GPU) had in machine learning performance, similar techniques can be applied to problems in geophysics. In particular, the magnetics simulation can be formulated to target the GPU. With this, large scaled simulations can be computed in a practical amount of time. In the following document the FFT formulated kernel with a modest GPU, 1024 X 1024 receiver coverage, can calculate the forward simulation in seconds. Traditional kernels would require a lot of resources and need to be highly distributed to accomplish these speeds. Starting from an already fast kernel, then applying to the fully distributed system has potential for highly parallel and fast simulated results. This is particularily important when the forward simulation kernel is involved in solving a system of linear equations with iterative methods. These iterations need to be quick. With the advancements in GPU technology, fast magnetics simulations are achievable.
 
 ## FFT's & Magnetics
 
-Based on the work of [Jianke Qiang et. al, 2019](https://doi.org/10.1016/j.jappgeo.2019.04.009) which forms the magnetic anomaly calculation as a convolution a forward modeling kernel can be written for magnetics utilizing GPU resources allowing for fast computation of large scaled surveys. This is accomplished by utilising Fast Fourier Transforms and matrix multiplications which are highly optimized for GPU operation. In order to do the Fourier calculation, a few pieces of information must be calculated in the spatial domain. First we calculate the geometric term of the magnetic response from a single layer call it $\p_k$ can be broken into its components $\pfx$, $\pfy$, $\pfz$ represented as:
+Based on the work of [Jianke Qiang et. al, 2019](https://doi.org/10.1016/j.jappgeo.2019.04.009) which forms the magnetic anomaly calculation as a convolution, a forward modeling kernel can be written for magnetics targeting GPU resources. Allowing for fast computation of large scaled surveys. This is accomplished by utilising Fast Fourier Transforms and matrix multiplications which are highly optimized for GPU computation. In order to do the Fourier calculation, a few pieces of information must be calculated in the spatial domain. First we calculate the geometric term of the magnetic response from a single layer call it $\p_k$ can be broken into its components $\pfx$, $\pfy$, $\pfz$ represented as:
 
 $$
 \label{magPx}
@@ -40,7 +40,7 @@ $$
 \end{aligned}
 $$
 
-In [](#magPx), [](#magPy), [](#magPz) variables **X**, **Y** are defined as matrices of all the cell locations. **Z** is the depth location to the single layer being calculated. *I* is the inclination and *A* is declination of the inducing source field. Combining these, the total component contribution from a single layer is represented by:
+In [](#magPx), [](#magPy), [](#magPz) variables **X**, **Y** are defined as matrices of all the cell locations. **Z** is the depth location to the single layer being calculated. *I* is the inclination and *A* is declination of the magnetization field. Combining these, the total component contribution from a single layer is represented by:
 
 $$
 \label{magP}
@@ -49,7 +49,7 @@ $$
 \end{aligned}
 $$
 
-Matrix [](#magP) is then used to calculate the magnetic response from a single layer. The magnetization of the layer is extracted from the model as $M_k(i, j)$ where *k* is the layer number at depth $Z_k$ of the model. The solution is then represented as:
+Where *$I_0$* and *$A_0$* are the inclinations and declinations of the inducing field. Which in this case is the geomagnetic field. Matrix [](#magP) is then used to calculate the magnetic response from a single layer. The magnetization of the layer is extracted from the model as $M_k(i, j)$ where *k* is the layer number at depth $Z_k$ of the model. The solution is then represented as:
 
 $$
 \label{qk}
@@ -69,7 +69,7 @@ $$
 
 To reduce computation time further, the current algorithm can target the GPU by using packages such as [PyTorch](https://doi.org/10.48550/arXiv.1912.01703). GPUs are extremely optimized for mathematical operations. In particular, Fourier transforms and matrix multiplications.  
 
-In code calculate [](#magP) for a single layer $k$ with [](#magPx), [](#magPy), [](#magPz) in the following:
+In code, to calculate [](#magP) for a single layer $k$ with [](#magPx), [](#magPy), [](#magPz):
 
 ```python
 def psfLayer(self, Z):
@@ -78,20 +78,19 @@ def psfLayer(self, Z):
         :param Z: the susceptibilites of model layer Z
         :type Z: Tensor
 
-        Note:
-        I is the magnetization dip angle 
-        A is the magnetization deflection angle
-        I0 is the geomagnetic dip angle
-        A0 is the geomagnetic deflection angle
-
     """
 
     dim2 = torch.div(self.dim,2,rounding_mode='floor')
     Dx   = self.h[0]
     Dy   = self.h[1]
+    
+    # I is the magnetization dip angle
     I    = self.dirs[0]
+    # A is the magnetization deflection angle
     A    = self.dirs[1]
+    # I0 is the geomagnetic dip angle
     I0   = self.dirs[2]
+    # A0 is the geomagnetic deflection angle
     A0   = self.dirs[3]
 
     x   = Dx*torch.arange(-dim2[0]+1,dim2[0]+1, device=self.device)
@@ -121,7 +120,7 @@ def psfLayer(self, Z):
     return PSF, center, Rf
 ```
 
-The output from the above code produces matrix $\p_k$ and for an entire layer $k$ of the model subsurface. Each entry in this matrix is the summation of the each cell in that layer for each observation point on the surface. Mentioned earlier, the magnetization data from a single layer [](#qk) of the model can be calculated in the Fourier domain [](#qkfft). The calculation is then reduced to:
+The output from the above code produces matrix $\p_k$ for an entire layer $k$ of a discretzated model. Each entry in this matrix is the summation of the all cells in that layer for each observation point on the surface. Mentioned earlier, the magnetization data from a single layer [](#qk) of the model can be calculated in the Fourier domain [](#qkfft). The calculation is then reduced to:
 
 $$
 \label{qkifft}
@@ -132,7 +131,7 @@ $$
 
 Where $C = \frac{\mu_0 \Delta x \Delta y \Delta z}{4\pi}$.
 
-When performing the frequency domain multiplication the data are shifted in the original domain to ensure the zero frequency is in the center. This is done by applying the common operator `fftshift` found in most scientific packages (<wiki:Discrete_Fourier_transform>). This ensures that the mathematical operations in the frequency domain are applied appropriately returning the equivalent of the the original matrix cross-multiplication. `fftshift` essentially swaps the quadrants seen in [](#fftshift) transforming to zero frequency centered data in the Fourier domain.
+When performing the frequency domain multiplication the data are shifted in the original domain to ensure the zero frequency is in the center. This is done by applying the common operator `fftshift` found in most scientific packages (<wiki:Discrete_Fourier_transform>). This ensures that the mathematical operations in the frequency domain are applied appropriately returning the equivalent of the the original matrix cross-multiplication. `fftshift` essentially swaps the quadrants transforming to zero frequency centered data in the Fourier domain ([](#fftshift)).
 
 ```{figure} ./figures/fftshift.png
 :height: 400px
@@ -143,7 +142,7 @@ When performing the frequency domain multiplication the data are shifted in the 
 
 Example swapping quadrants with fftshift ([Stephen Gruppetta, 2021](https://thepythoncodingbook.com/2021/08/30/2d-fourier-transform-in-python-and-fourier-synthesis-of-images/)).
 ```
-Pulling alltogether the peices outlined above, to calculate the total magnetic response, the following steps are required:
+Pulling the peices alltogether outlined above, the total magnetic response is calculated in the following steps:
 1. `fftshift` the data in spatial domain.
 2. Take [](#magP) and compute $FFT(\p_k)$.
 3. `fftshift` in the Fourier domain to swap data positions.
@@ -155,9 +154,7 @@ Pulling alltogether the peices outlined above, to calculate the total magnetic r
 9. $IFFT(\tilde{\magq}_k )$ the product of the matrix mulitplication.
 10. Calculate [](#qkifft).
 
-This is done for every layer in the model and each layer is summed to produce a 2D representation of the subsurface response. The total magnetic anomaly $\magq_k$ is then calculated by multiplying the data by constant $C$
-
-The complete forward kernal for $\magq$ is a simple `for` loop:
+This is done for every layer in the model and each layer is summed to produce a 2D representation of the subsurface response. The complete forward kernel for $\magq$ is a simple `for` loop:
 
 ```python
 
@@ -214,13 +211,13 @@ def forward(self, M):
     return Data*zeta*dV
 ```
 
-Even with the single python `for` loop, the algorithm can calculate a 536,870,912 cell model at 1,048,576 stations in 4.7 seconds targeting a RTX 3070 8GB GPU. This is impressively fast compare to numerous hours it could take traditional methods ([](https://doi.org/10.1016/j.jappgeo.2019.04.009)). With a distibuted system the time can be further reduced by sending each iteration of the `for` loop to an independent node with a capable GPU(s).
+Even with the single python `for` loop, the algorithm can calculate a 536,870,912 cell model at 1,048,576 stations in 4.7 seconds targeting a RTX 3070 8GB GPU. This is impressively fast compared to numerous hours it could take traditional methods ([](https://doi.org/10.1016/j.jappgeo.2019.04.009)). With a distibuted system the time could be further reduced by sending each iteration of the `for` loop to an independent node with a capable GPU(s).
 
-Furthermore, the kernel itself could be optimized further. By utilising the geometry of the receivers, there is potential to use the symetry to reduce the number of receivers required for calculation. Anther optimization but a less impactful one are to make use of pre-calculating the trignometric functions and storing them for subsequent use. Trignometric function are often costly, so reducing the amount of times to calculate common results improves the kernel's performance.
+Furthermore, the kernel itself could be further optimized. By utilising the geometry of the receivers, there is potential to use the symetry to reduce the number of receivers required for the calculation. Another optimization but a less impactful one is to make use of pre-calculating the trignometric functions and storing them for subsequent use. Trignometric function are often costly, so reducing the amount of times to calculate common results improves the kernel's performance.
 
 ## Buried block simulation
 
-Using the above kernel, the forward data of a magnetic block in a half space is calculated with mesh parameters:
+Using the above kernel, the simulated data of a magnetic block in a half space is calculated with mesh parameters:
 - number of x cells = 1024
 - number of y cells = 1024
 - number of z cells = 512
@@ -236,7 +233,9 @@ Using the above kernel, the forward data of a magnetic block in a half space is 
 Buried block model.
 ```
 
-Note that the axis are cell number. [Matplotlib](10.1109/MCSE.2007.55)’s `imshow()` was used for for simplicity. The forward simulations assumes a magnetization inclination and dip that are $90^o$ and along with a vertical inducing field.
+Note that the axis are cell number but units are 1e2 meters. This is a result of [Matplotlib](10.1109/MCSE.2007.55)’s `imshow()` that was used for for simplicity.
+
+Using the model in [](#simple3d), testing of the FFT kernel in various inducing field orientation is completed in the following. The forward simulation here assume a magnetization inclination and dip that are $90^o$ and along with a vertical inducing field ([](#simpledata)).
 
 ```{figure} ./figures/03-simplesimulated9090.png
 :name: simpledata
@@ -246,7 +245,7 @@ Note that the axis are cell number. [Matplotlib](10.1109/MCSE.2007.55)’s `imsh
 Simulated data from the buried block model.
 ```
 
-Lastly, a simulation with the centered block but this time with an inclination and declination of 45 degrees is forward modeled.
+Lastly, a simulation with the centered block but this time with an inducing field having inclination and declination of 45 degrees is shown in [](#simpledata45).
 
 ```{figure} ./figures/12-simplesimulated4545.png
 :name: simpledata45
@@ -256,7 +255,7 @@ Lastly, a simulation with the centered block but this time with an inclination a
 Simulated data from the buried block model with an inducing field with declination and inclination of $45^o$.
 ```
 
-To compare the output of the kernel, the python package [Choclo](https://doi.org/10.5281/zenodo.7851747) was used to calculate the forward response of the same buried block. Here we see that the magnitudes are correct but the field tends to decay faster mobing away from the sphere. The Choclo formulation calculates the response of a prism while the FFT based kernel is the entire subsurface. They should be close though but differences do arise. however, with the small values of anomalous magnetic field the differences are likely caused by floating point errors.
+To compare the output of the kernel, the python package [Choclo](https://doi.org/10.5281/zenodo.7851747) was used to calculate the forward response of the same buried block. Here we see that the order of magnitudes are correct but the field tends to decay faster mobing away from the sphere ([](#fftcompare)). The Choclo formulation calculates the response of a prism while the FFT based kernel is the entire subsurface. Though they should be close, differences are apparent. However, with the small values of anomalous magnetic field, the differences are likely caused by floating point errors.
 
 ```{figure} ./figures/11-choclo+fft.png
 :name: fftcompare
@@ -268,7 +267,9 @@ FFT kernel comparison with Choclo.
 
 ## Complex structure simulations
 
-To truly test the FFT based forward kernel more complex models are required. Fortunately [noddyverse](10.5194/essd-14-381-2022) has generated numerous models specifically designed for potential fields simulations ([](#noddy3d)). Moving on from simple models, large scale structural and intrusive models. With calculations done in the frequency domain objects near the edges can have harmful effects by being repeated in different quadrants ([](https://doi.org/10.1190/tle41070454.1)). However, with the shift operations during the calculation, padding can be added that removes this effect.
+To do an optimal test of the FFT based forward kernel models resembling geology is much more practical. Meaning more complex models are required. Fortunately [noddyverse](10.5194/essd-14-381-2022) has generated numerous models specifically designed for potential fields simulations ([](#noddy3d)). Moving on from simple models, large scale structural and intrusive models are available. 
+
+With calculations done in the frequency domain objects near the edges can have harmful effects by appearing repeated in different quadrants ([](https://doi.org/10.1190/tle41070454.1)). However, with the shift operations in modern science packages, during the calculation padding can be added that removes this effect.
 
 ```{figure} ./figures/01-noddymodel3d.png
 :name: noddy3d
@@ -278,7 +279,7 @@ To truly test the FFT based forward kernel more complex models are required. For
 Example of a 3D noddyVerse model
 ```
 
-Noddy models contain mostly large structural geologic structures such as folds, faults, unconformity, dykes, intrusions. These models are ideally the scale of concern for the proposed algorthm. [](#noddy2d1) is an example of the complex structures within the collection of models. For each of these models the forward simulation can be computed. [](#noddysim1) shows the result of the model from [](#noddy2d1) with an assumed vertical field.
+Noddy models contain mostly large structural geologic structures such as folds, faults, unconformity, dykes, intrusions. These models are ideally the scale of concern for the proposed algorthm. [](#noddy2d1) is an example of the complex structures within the collection of models. For each of these models the forward simulation can be computed.
 
 ```{figure} ./figures/05-complex7noddy.png
 :name: noddy2d1
@@ -287,6 +288,8 @@ Noddy models contain mostly large structural geologic structures such as folds, 
 
 Example of a 3D noddyVerse model
 ```
+
+[](#noddysim1) show the result of the model from [](#noddy2d1) with an assumed vertical field. It is promising to see the padding included in the operation proves effective at removing any repeating boundary values.
 
 ```{figure} ./figures/04-complex7simulated9090.png
 :height: 480px
@@ -300,7 +303,7 @@ Example of a 3D noddyVerse model
 
 ## Solving with conjugate gradient method
 
-Now with a forward simulation kernal complete, we will want to see if we can minimize the difference between predicted data and observed synthetic data using the <wiki:Conjugate_gradient_method> (CG). The data difference is simply defined as the $d_{predicted} - d_{observed}$. The CG algorithm aims to minimize the objective function to find a model that fits the data. Ideally the recovered model being the one the data was generated with. The following code uses the forward kernal to solve a linear system resulting in a best fitting model thats fits the synthetic data:
+Now with a forward simulation kernel complete, we will want to see if we can minimize the difference between predicted data and observed synthetic data using the <wiki:Conjugate_gradient_method> (CG). The data difference is simply defined as the $d_{predicted} - d_{observed}$. The CG algorithm aims to minimize the objective function to find a model that fits the data. Ideally the recovered model being the one the data was generated with. The following code uses the forward kernal to solve a linear system resulting in a best fitting model thats fits the synthetic data:
 
 ```python
 class CGLS(nn.Module):
@@ -357,7 +360,7 @@ For simplicity, the above code is run on a similar model as [](#simple3d) but wi
 - number of y cells = 128
 - number of z cells = 64
 
-[](#cg) and [](#cgsolution) display the results of running the GPU enabled algorithm. The algorithm achieves convergence and has expected decay behaviour. The recovered model is coherent with acceptable xy lateral resolution of the target but lacks any depth imaging. This is expected. Potential fields suffer from ambiguity in depth information or the lack there of. A regularization term is typically used to promote models with structure to depth ([](https://doi.org/10.1016/j.cageo.2015.09.015)).
+[](#cg) and [](#cgsolution) display the results of running the GPU enabled algorithm. The algorithm achieves convergence and has expected decay behaviour. The recovered model is coherent with acceptable xy lateral resolution of the target but lacks any depth imaging. This is expected. Potential fields suffer from ambiguity in depth information or the lack there of. To promote models that contain features at depth, a regularization term is typically used ([](https://doi.org/10.1016/j.cageo.2015.09.015)).
 
 ```{figure} ./figures/09-cgiterations.png
 :name: cg
@@ -375,8 +378,8 @@ Conjugate gradient solving linear system convergence.
 Conjugate gradient recovered model **a)** plan view of the top surface of the model. **b)** depth slice at y = 64 m.
 ```
 
-Targeting the GPU the CG iterations take on average 0.3194 seconds for a total of 0.69 seconds. Note that in each CG iteration the forward operator is executed. For large scale surveys and traditional forward kernals, each iteration is costly.
+Targeting the GPU, the CG iterations take on average 0.3194 seconds for a total of 0.69 seconds. Note that in each CG iteration the forward operator is executed. For large scale surveys and traditional forward kernals, each iteration is costly.
 
 ## Discussion
 
-GPU's have been highly optimized for linear math operations brought on in the wake of the successes in areas of machine learning. The same can be applied to the magnetics geophysical forward simulation. This allows modelling capabilities for large scale airborne type surveys that can contain 10's to 100's of millions of cells to fully discretize the acquisition. What would noramlly take hours to days to calculate can be done in the fraction of the time and scalable. This means adding more resources (e.g GPU's, distributed nodes, etc.) can reduce the time until the internal communications bandwidth limits the proceedure ([](https://doi.org/10.48550/arXiv.1103.3225)).
+GPU's have been highly optimized for linear math operations brought on in the wake of the successes in areas of machine learning. Similar methods can be applied to the magnetics geophysical forward simulation. This allows modelling capabilities for large scale airborne type surveys that can contain 10's to 100's of millions of cells to fully discretize the acquisition. What would normally take hours to days to calculate can be done in the fraction of the time and scalable. This means adding more resources (e.g GPU's, distributed nodes, etc.) can reduce the time until the internal communications bandwidth limits the proceedure ([](https://doi.org/10.48550/arXiv.1103.3225)).
