@@ -210,7 +210,7 @@ def forward(self, M):
     return Data*zeta*dV
 ```
 
-Even with the single python `for` loop, the algorithm can calculate a 536,870,912 cell model at 1,048,576 stations in 4.7 seconds targeting a RTX 3070 8GB GPU. This is impressively fast compare to numerous hours it could take traditional methods ([](https://doi.org/10.1016/j.jappgeo.2019.04.009)).
+Even with the single python `for` loop, the algorithm can calculate a 536,870,912 cell model at 1,048,576 stations in 4.7 seconds targeting a RTX 3070 8GB GPU. This is impressively fast compare to numerous hours it could take traditional methods ([](https://doi.org/10.1016/j.jappgeo.2019.04.009)). With a distibuted system the time can be further reduced by sending each iteration of the `for` loop to an independent node with a capable GPU(s).
 
 ## Buried block simulation
 
@@ -230,9 +230,7 @@ Using the above kernel, the forward data of a magnetic block in a half space is 
 Buried block model.
 ```
 
-Note that the axis are cell number. Matplotlib’s `imshow()` was used for for simplicity.
-
-The first forward simulation employed a vertical inducing field.
+Note that the axis are cell number. [Matplotlib](10.1109/MCSE.2007.55)’s `imshow()` was used for for simplicity. The forward simulations assumes a magnetization inclination and dip that are $90^o$ and along with a vertical inducing field.
 
 ```{figure} ./figures/03-simplesimulated9090.png
 :name: simpledata
@@ -242,15 +240,21 @@ The first forward simulation employed a vertical inducing field.
 Simulated data from the buried block model.
 ```
 
-The second simulation, again with a vertical inducing field but an offset block
+Lastly, a simulation with the centered block but this time with an inclination and declination of 45 degrees is forward modeled.
 
-Lastly, a simulation with the centered block but this time with an inclination and declination of 45 degrees was forward modeled.
+```{figure} ./figures/12-simplesimulated4545.png
+:name: simpledata45
+:alt: i45d45 Simulated data using the FFT kernal
+:align: center
 
-To compare the output of the kernal, the python package [Choclo](https://doi.org/10.5281/zenodo.7851747) was used to calculate the forward response of the same buried block.
+Simulated data from the buried block model with an inducing field with declination and inclination of $45^o$.
+```
+
+To compare the output of the kernel, the python package [Choclo](https://doi.org/10.5281/zenodo.7851747) was used to calculate the forward response of the same buried block. Here we see that the magnitudes are correct but the field tends to decay faster mobing away from the sphere. The Choclo formulation calculates the response of a prism while the FFT based kernel is the entire subsurface. They should be close though but differences do arise. however, with the small values of anomalous magnetic field the differences are likely caused by floating point errors. 
 
 ## Complex structure simulations
 
-To truly test the FFT based forward kernal more complex models are required. Fortunately [noddyverse](10.5194/essd-14-381-2022) as generated numerous models specifically designed for potential fields simulations. Moving on from simple models, large scale structural and intrusive models. With calculations done in the frequency domain objects near the edges can have harmful effects by being repeated in different quadrants ([](https://doi.org/10.1190/tle41070454.1))
+To truly test the FFT based forward kernel more complex models are required. Fortunately [noddyverse](10.5194/essd-14-381-2022) as generated numerous models specifically designed for potential fields simulations ([](#noddy3d)). Moving on from simple models, large scale structural and intrusive models. With calculations done in the frequency domain objects near the edges can have harmful effects by being repeated in different quadrants ([](https://doi.org/10.1190/tle41070454.1)). However, with the shift operations during the calculation, padding can be added that removes this effect.
 
 ```{figure} ./figures/01-noddymodel3d.png
 :name: noddy3d
@@ -259,6 +263,8 @@ To truly test the FFT based forward kernal more complex models are required. For
 
 Example of a 3D noddyVerse model
 ```
+
+Noddy models contain mostly large structural geologic structures such as folds, faults, unconformity, dykes, intrusions. These models are ideally the scale of concern for the proposed algorthm. [](#noddy2d1) is an example of the complex structures within the collection of models. For each of these models the forward simulation can be computed. [](#noddysim1) shows the result of the model from [](#noddy2d1) with an assumed vertical field.
 
 ```{figure} ./figures/05-complex7noddy.png
 :name: noddy2d1
@@ -278,27 +284,9 @@ Example of a 3D noddyVerse model
 Example of a 3D noddyVerse model
 ```
 
-```{figure} ./figures/08-complex8noddy.png
-:name: noddy2d2
-:alt: Image of a noddy 3D model
-:align: center
-
-Example of a 3D noddyVerse model
-```
-
-```{figure} ./figures/06-complex8simulated9090.png
-:height: 480px
-:width: 550px
-:name: noddysim2
-:alt: Image of a noddy 3D model
-:align: center
-
-Example of a 3D noddyVerse model
-```
-
 ## Solving with conjugate gradient method
 
-Now with a forward kernal complete, we will want to see if we can minimize a data misfit using a conjugate gradient (CG) method <wiki:Conjugate_gradient_method>. The data misfit is simply defined as the $d_{predicted} - d_{observed}$. The CG algorithm aims to minimize this find a model that fits the data. The following code uses the forward kernal to solve a linear system resulting in a best fitting model thats fits the synthetic data:
+Now with a forward kernal complete, we will want to see if we can minimize the difference between predicted data and observed synthetic data using a conjugate gradient (CG) method <wiki:Conjugate_gradient_method>. The data difference is simply defined as the $d_{predicted} - d_{observed}$. The CG algorithm aims to minimize the objective function to find a model that fits the data. Ideally the recovered model being the one the data was generated with. The following code uses the forward kernal to solve a linear system resulting in a best fitting model thats fits the synthetic data:
 
 ```python
 class CGLS(nn.Module):
@@ -350,6 +338,13 @@ class CGLS(nn.Module):
 
 ```
 
+For simplicity the above code is run on a similar model as [](#simple3d) but with fewer parameters:
+- number of x cells = 128
+- number of y cells = 128
+- number of z cells = 64
+
+[](#cg) and [](#cgsolution) display the results of running the GPU enabled algorithm. The algorithm achieves convergence and has expected decay behaviour. The recovered model is coherent with acceptable xy lateral resolution of the target but lacks any depth imaging. This is expected. Potential fields suffer from ambiguity in depth information or the lack there of. 
+
 ```{figure} ./figures/09-cgiterations.png
 :name: cg
 :alt: Image of a CG iterations
@@ -363,9 +358,11 @@ Conjugate gradient solving linear system convergence.
 :alt: Image of a CG solution model
 :align: center
 
-Conjugate gradient recovered model.
+Conjugate gradient recovered model **a)** plan view of the top surface of the model. **b)** depth slice at y = 64 m.
 ```
+
+Targeting the GPU the CG iterations take on average 0.3194 seconds for a total of 0.69 seconds. Note that in each CG iteration the forward operator is executed. For large scale surveys and traditional forward kernals, each iteration is costly.
 
 ## Discussion
 
-[](#noddy3d)
+GPU's have been highly optimized for linear math operations brought on in the wake of the success of machine learning. The same can be applied to the magnetics geophysical forward simulation. This allows modelling capabilities for large scale airborne type surveys that can contain 10's to 100's of millions of cells to fully discretize the acquisition. What would noramlly take hours to days to calculate can be done in the fraction of the time and scalable. This means adding more resources (e.g GPU's, distributed nodes, etc.) can reduce the time until the internal communications bandwidth limits the proceedure ([](https://doi.org/10.48550/arXiv.1103.3225)).
