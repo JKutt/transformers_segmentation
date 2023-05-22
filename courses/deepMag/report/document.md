@@ -11,6 +11,10 @@ math:
 
 # DeepMagnetics
 
+## Abstract
+
+Based on the success of the graphical processing unit (GPU) in machine learning, this performance can be applied to linear problems in geophysics. In particular, the magnetics simulation can be formulated to target the GPU. With this large scaled simulations can be computed in a practical amount of time. In the following document the FFT formulated kernel with modest GPU a 1024 X 1024 receiver coverage can calculate the forward simulation in seconds. Traditional kernels would take a lot of resources and need to be highly distributed to accomplish these speeds. Starting from an already fast kernel, the fully distributed system has potential of highly parallel and fast simulated results.
+
 ## FFT's & Magnetics
 
 Based on the work of [Jianke Qiang et. al, 2019](https://doi.org/10.1016/j.jappgeo.2019.04.009) which forms the magnetic anomaly calculation as a convolution a forward modeling kernel can be written for magnetics utilizing GPU resources allowing for fast computation of large scaled surveys. This is accomplished by utilising Fast Fourier Transforms and matrix multiplications which are highly optimized for GPU operation. In order to do the Fourier calculation, a few pieces of information must be calculated in the spatial domain. First we calculate the geometric term of the magnetic response from a single layer call it $\p_k$ can be broken into its components $\pfx$, $\pfy$, $\pfz$ represented as:
@@ -212,6 +216,8 @@ def forward(self, M):
 
 Even with the single python `for` loop, the algorithm can calculate a 536,870,912 cell model at 1,048,576 stations in 4.7 seconds targeting a RTX 3070 8GB GPU. This is impressively fast compare to numerous hours it could take traditional methods ([](https://doi.org/10.1016/j.jappgeo.2019.04.009)). With a distibuted system the time can be further reduced by sending each iteration of the `for` loop to an independent node with a capable GPU(s).
 
+Furthermore, the kernel itself could be optimized further. By utilising the geometry of the receivers, there is potential to use the symetry to reduce the number of receivers required for calculation. Anther optimization but a less impactful one are to make use of pre-calculating the trignometric functions and storing them for subsequent use. Trignometric function are often costly, so reducing the amount of times to calculate common results improves the kernel's performance.
+
 ## Buried block simulation
 
 Using the above kernel, the forward data of a magnetic block in a half space is calculated with mesh parameters:
@@ -250,11 +256,19 @@ Lastly, a simulation with the centered block but this time with an inclination a
 Simulated data from the buried block model with an inducing field with declination and inclination of $45^o$.
 ```
 
-To compare the output of the kernel, the python package [Choclo](https://doi.org/10.5281/zenodo.7851747) was used to calculate the forward response of the same buried block. Here we see that the magnitudes are correct but the field tends to decay faster mobing away from the sphere. The Choclo formulation calculates the response of a prism while the FFT based kernel is the entire subsurface. They should be close though but differences do arise. however, with the small values of anomalous magnetic field the differences are likely caused by floating point errors. 
+To compare the output of the kernel, the python package [Choclo](https://doi.org/10.5281/zenodo.7851747) was used to calculate the forward response of the same buried block. Here we see that the magnitudes are correct but the field tends to decay faster mobing away from the sphere. The Choclo formulation calculates the response of a prism while the FFT based kernel is the entire subsurface. They should be close though but differences do arise. however, with the small values of anomalous magnetic field the differences are likely caused by floating point errors.
+
+```{figure} ./figures/11-choclo+fft.png
+:name: fftcompare
+:alt: FFT kernel comparison with Choclo
+:align: center
+
+FFT kernel comparison with Choclo.
+```
 
 ## Complex structure simulations
 
-To truly test the FFT based forward kernel more complex models are required. Fortunately [noddyverse](10.5194/essd-14-381-2022) as generated numerous models specifically designed for potential fields simulations ([](#noddy3d)). Moving on from simple models, large scale structural and intrusive models. With calculations done in the frequency domain objects near the edges can have harmful effects by being repeated in different quadrants ([](https://doi.org/10.1190/tle41070454.1)). However, with the shift operations during the calculation, padding can be added that removes this effect.
+To truly test the FFT based forward kernel more complex models are required. Fortunately [noddyverse](10.5194/essd-14-381-2022) has generated numerous models specifically designed for potential fields simulations ([](#noddy3d)). Moving on from simple models, large scale structural and intrusive models. With calculations done in the frequency domain objects near the edges can have harmful effects by being repeated in different quadrants ([](https://doi.org/10.1190/tle41070454.1)). However, with the shift operations during the calculation, padding can be added that removes this effect.
 
 ```{figure} ./figures/01-noddymodel3d.png
 :name: noddy3d
@@ -286,7 +300,7 @@ Example of a 3D noddyVerse model
 
 ## Solving with conjugate gradient method
 
-Now with a forward kernal complete, we will want to see if we can minimize the difference between predicted data and observed synthetic data using a conjugate gradient (CG) method <wiki:Conjugate_gradient_method>. The data difference is simply defined as the $d_{predicted} - d_{observed}$. The CG algorithm aims to minimize the objective function to find a model that fits the data. Ideally the recovered model being the one the data was generated with. The following code uses the forward kernal to solve a linear system resulting in a best fitting model thats fits the synthetic data:
+Now with a forward simulation kernal complete, we will want to see if we can minimize the difference between predicted data and observed synthetic data using the <wiki:Conjugate_gradient_method> (CG). The data difference is simply defined as the $d_{predicted} - d_{observed}$. The CG algorithm aims to minimize the objective function to find a model that fits the data. Ideally the recovered model being the one the data was generated with. The following code uses the forward kernal to solve a linear system resulting in a best fitting model thats fits the synthetic data:
 
 ```python
 class CGLS(nn.Module):
@@ -338,12 +352,12 @@ class CGLS(nn.Module):
 
 ```
 
-For simplicity the above code is run on a similar model as [](#simple3d) but with fewer parameters:
+For simplicity, the above code is run on a similar model as [](#simple3d) but with fewer parameters:
 - number of x cells = 128
 - number of y cells = 128
 - number of z cells = 64
 
-[](#cg) and [](#cgsolution) display the results of running the GPU enabled algorithm. The algorithm achieves convergence and has expected decay behaviour. The recovered model is coherent with acceptable xy lateral resolution of the target but lacks any depth imaging. This is expected. Potential fields suffer from ambiguity in depth information or the lack there of. 
+[](#cg) and [](#cgsolution) display the results of running the GPU enabled algorithm. The algorithm achieves convergence and has expected decay behaviour. The recovered model is coherent with acceptable xy lateral resolution of the target but lacks any depth imaging. This is expected. Potential fields suffer from ambiguity in depth information or the lack there of. A regularization term is typically used to promote models with structure to depth ([](https://doi.org/10.1016/j.cageo.2015.09.015)).
 
 ```{figure} ./figures/09-cgiterations.png
 :name: cg
@@ -365,4 +379,4 @@ Targeting the GPU the CG iterations take on average 0.3194 seconds for a total o
 
 ## Discussion
 
-GPU's have been highly optimized for linear math operations brought on in the wake of the success of machine learning. The same can be applied to the magnetics geophysical forward simulation. This allows modelling capabilities for large scale airborne type surveys that can contain 10's to 100's of millions of cells to fully discretize the acquisition. What would noramlly take hours to days to calculate can be done in the fraction of the time and scalable. This means adding more resources (e.g GPU's, distributed nodes, etc.) can reduce the time until the internal communications bandwidth limits the proceedure ([](https://doi.org/10.48550/arXiv.1103.3225)).
+GPU's have been highly optimized for linear math operations brought on in the wake of the successes in areas of machine learning. The same can be applied to the magnetics geophysical forward simulation. This allows modelling capabilities for large scale airborne type surveys that can contain 10's to 100's of millions of cells to fully discretize the acquisition. What would noramlly take hours to days to calculate can be done in the fraction of the time and scalable. This means adding more resources (e.g GPU's, distributed nodes, etc.) can reduce the time until the internal communications bandwidth limits the proceedure ([](https://doi.org/10.48550/arXiv.1103.3225)).
