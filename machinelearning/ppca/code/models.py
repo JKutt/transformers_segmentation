@@ -59,7 +59,7 @@ class ppca:
     def transform(self, data):
         """
 
-            hidden from visible
+            latent from visible
 
         """
 
@@ -77,7 +77,7 @@ class ppca:
     def inverse_transform(self, data):
         """
         
-            visible from hidden
+            visible from latent
         
         """
 

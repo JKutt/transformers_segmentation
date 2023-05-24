@@ -29,23 +29,10 @@ class ppca:
         
         """
 
-        # calculate maximum likelihood means
-        self.mu = np.mean(X, axis=0)
+        # Code for 1a) here for implementing the calculation of MLE
+        # means, weights and varainces  
 
-        # Calcualte maximum likelihood variance
-        data_cov = np.cov(X, rowvar=False)
-        lambdas, eigenvecs = np.linalg.eig(data_cov)
-        idx = lambdas.argsort()[::-1]   
-        lambdas = lambdas[idx]
-        eigenvecs = - eigenvecs[:,idx]
-
-        self.sigma2 = (1.0 / (self.d-self.q)) * sum([lambdas[j] for j in range(self.q, self.d)])
-
-        # Calculate maximum likelihood Weight matrix
-        uq = eigenvecs[:,:self.q]
-        lambdaq = np.diag(lambdas[:self.q])
-        
-        self.weights = uq @ np.sqrt(lambdaq - self.sigma2 * np.eye(self.q))
+        raise NotImplementedError
 
         if self.verbose:
             print("eigenvectors:")
@@ -59,25 +46,37 @@ class ppca:
     def transform(self, data):
         """
 
-            hidden from visible
+            latent from visible
 
         """
 
-        # write the code here that samples the hidden/latent space
+        [W, sigma, mean] = [self.weights, self.sigma2, self.mu]
 
-        raise NotImplementedError()
+        M = np.transpose(W).dot(W) + sigma * np.eye(self.q)
+        Minv = np.linalg.inv(M)
+
+        latent_data = Minv.dot(np.transpose(W)).dot(np.transpose(data - mean))
+        latent_data = np.transpose(latent_data) 
+
+        return latent_data
 
     
     def inverse_transform(self, data):
         """
         
-            visible from hidden
+            visible from latent
         
         """
 
-        # write the reconstruction code here
+        # calculate the tuned M
+        M = np.transpose(self.weights).dot(self.weights) + self.sigma2 * np.eye(self.q)
 
-        raise NotImplementedError()
+        # create a simulation of the old data after beeing transformed with PCA
+        created_data = self.weights.dot(
+            np.linalg.inv(self.weights.T.dot(self.weights))
+            ).dot(M).dot(data.T).T + self.mu
+
+        return created_data
 
 
     def predict(self, Xtest):
