@@ -260,11 +260,12 @@ def forward(self, M):
     return Data*zeta*dV
 ```
 
-
 Even with the single python `for` loop, the algorithm can calculate a 536,870,912 cell model at 1,048,576 stations in 4.7 seconds using a RTX 3070 8GB GPU. This is impressively fast compared to numerous hours it could take using traditional methods ([](https://doi.org/10.1016/j.jappgeo.2019.04.009)). With a distributed system the time could be further reduced by sending each iteration of the `for` loop to an independent node with a capable GPU(s).
 
-
 Furthermore, the kernel itself could be further optimised. By utilising the geometry of the receivers, there is potential to use the symmetry to reduce the number of receivers required for the calculation. Another optimization but a less impactful one is to make use of pre-calculating the trigonometric functions and storing them for subsequent use. Trigonometric function are often costly and in [](#magPx), [](#magPy), [](#magPz) the same trigonometric functions are calculated in 3 times in each. The kernel's performance would improve by reducing the number of times common results are calculated.
+
+### The algorithim
+
 
 
 ## Buried block simulation
@@ -485,3 +486,31 @@ GPU's are highly optimised for linear mathematical operations brought on in the 
 
 Future work will be geared towards introducing a regularisation and resolving the differences between analytical solutions and the FFT kernel. The addition of a regularisation term to promote features at depth will be further explored in 2 ways: first a typical Tikhanov regularisation ([](https://doi.org/10.1137/1021044)) and secondly, replaced with a neural network. The latter, in hopes of equal performance as the forward kernel. From here, a full geophysical inversion is achievable.
 
+
+## Diffusion Network as regularization
+
+### Normalisation
+
+$$
+\label{normmax}
+\begin{aligned}
+\tilde{x} = \frac{x - \mu}{max(x - \mu)}
+\end{aligned}
+$$
+
+$$
+\label{normstd}
+\begin{aligned}
+\tilde{x} = \frac{x - \mu}{\sigma}
+\end{aligned}
+$$
+
+a) [](#normmax) norm by max value:
+- learning rate = 0.001
+- 1000 forward steps in time
+
+b) batch normalisation using [](#normstd)
+
+### notes
+
+- add code to measure the loss rate for plotting
