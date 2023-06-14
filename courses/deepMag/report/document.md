@@ -512,12 +512,7 @@ Data Distributions under various basis.
 
 ### Normalisation
 
-$$
-\label{normmax}
-\begin{aligned}
-\tilde{x} = \frac{x - \mu}{max(x - \mu)}
-\end{aligned}
-$$
+Normalisation using by subtracting the mean and normalising by the varaince shown below:
 
 $$
 \label{normstd}
@@ -525,10 +520,6 @@ $$
 \tilde{x} = \frac{x - \mu}{\sigma}
 \end{aligned}
 $$
-
-a) [](#normmax) norm by max value:
-
-b) batch normalisation using [](#normstd)
 
 ### Training
 
