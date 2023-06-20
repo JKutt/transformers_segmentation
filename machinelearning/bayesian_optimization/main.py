@@ -8,8 +8,61 @@ from torch.optim import SGD
 
 # use a GPU if available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+print(f' Using device: {device}')
 dtype = torch.float
 
+# ----------------------------------------------------------------------------------------
+
+# get our data
+
+#
+
+def getTime():
+    timeFrom = [2040., 2060., 2080., 2120., 2160., 2200.,
+                2240., 2320., 2400.,
+                2480., 2560., 2640.,
+                2720., 2800., 2960.,
+                3120., 3280., 3440.,
+                3600., 3760.]
+    timeTo = [2060., 2080., 2120., 2160., 2200., 2240.,
+              2320., 2400., 2480., 2560., 2640., 2720.,
+              2800., 2960., 3120., 3280., 3440.,
+              3600., 3760., 3920.]
+    return timeFrom, timeTo
+
+
+timeFrom, timeTo = getTime()
+
+mid_time = (np.asarray(timeTo) + np.asarray(timeFrom)) / 2
+time_width = np.asarray(timeTo) - np.asarray(timeFrom)
+
+secondary_voltage = [
+                    -229.8557,
+                    -210.5083,
+                    -195.3468,  
+                    -177.7571,  
+                    -162.1708,   
+                    -149.5160,  
+                    -137.7064,  
+                    -127.3763,  
+                    -118.6991, 
+                    -109.4883, 
+                    -101.7745,  
+                    -95.0854, 
+                    -86.8954,
+                    -79.6953, 
+                    -72.7827, 
+                    -66.0279,  
+                    -60.5468, 
+                    -55.2554, 
+                    -50.1276, 
+                    -47.6666,
+]
+
+secondary_voltage = torch.from_numpy(-1 * np.array(secondary_voltage))
+
+secondary_voltage = secondary_voltage.to(device)
 
 # ### Set up function to model
 # In this tutorial we will model a simple sinusoidal function with i.i.d. Gaussian noise:
@@ -20,12 +73,17 @@ dtype = torch.float
 
 
 # use regular spaced points on the interval [0, 1]
-train_X = torch.linspace(0, 1, 15, dtype=dtype, device=device)
+# train_X = torch.linspace(0, 1, 15, dtype=dtype, device=device)
+
+train_X = torch.from_numpy(mid_time) * 1e-3
+train_X = train_X.to(device)
 # training data needs to be explicitly multi-dimensional
 train_X = train_X.unsqueeze(1)
 
 # sample observed values and add some synthetic noise
-train_Y = torch.sin(train_X * (2 * np.pi)) + 0.15 * torch.randn_like(train_X)
+# train_Y = torch.sin(train_X * (2 * np.pi)) + 0.15 * torch.randn_like(train_X)
+train_Y = secondary_voltage
+train_Y = train_Y.unsqueeze(1)
 
 
 # #### Initialize the model
@@ -38,7 +96,7 @@ train_Y = torch.sin(train_X * (2 * np.pi)) + 0.15 * torch.randn_like(train_X)
 
 
 model = SingleTaskGP(train_X=train_X, train_Y=train_Y)
-model.likelihood.noise_covar.register_constraint("raw_noise", GreaterThan(1e-5))
+model.likelihood.noise_covar.register_constraint("raw_noise", GreaterThan(1e-4))
 
 
 # #### Define marginal log likelihood 
@@ -56,13 +114,13 @@ mll = mll.to(train_X)
 # - As the `GaussianLikelihood` module is a of child (submodule) of the `SingleTaskGP` moduel, `model.parameters()` will also include the noise level of the `GaussianLikelihood`. 
 # - A subset of the parameters could be passed to the optimizer to tune those parameters, while leaving the other parameters fixed.
 
-optimizer = SGD([{"params": model.parameters()}], lr=0.1)
+optimizer = SGD([{"params": model.parameters()}], lr=0.01)
 
 
 # #### Fit model hyperparameters and noise level
 # Now we are ready to write our optimization loop. We will perform 150 epochs of stochastic gradient descent using our entire training set.
 
-NUM_EPOCHS = 150
+NUM_EPOCHS = 100
 
 model.train()
 
@@ -95,7 +153,7 @@ model.eval()
 # Initialize plot
 f, ax = plt.subplots(1, 1, figsize=(6, 4))
 # test model on 101 regular spaced points on the interval [0, 1]
-test_X = torch.linspace(0, 1, 101, dtype=dtype, device=device)
+test_X = torch.linspace(2, 4, 101, dtype=dtype, device=device)
 # no need for gradients
 with torch.no_grad():
     # compute posterior
@@ -112,3 +170,4 @@ with torch.no_grad():
     )
 ax.legend(["Observed Data", "Mean", "Confidence"])
 plt.tight_layout()
+plt.show()
