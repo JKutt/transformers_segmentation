@@ -786,3 +786,8 @@ Zoomed Fouriuer domain
 ## Notes
 - FID - torchmetrics
 - Pytorch ignite (on pytorch domain)
+
+- get debugger setup
+- try slowing the change in model gradient
+- squish data more
+- extend the time steps?
