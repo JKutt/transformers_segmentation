@@ -791,3 +791,7 @@ Zoomed Fouriuer domain
 - try slowing the change in model gradient
 - squish data more
 - extend the time steps?
+
+- add smallnes term to the gradient data misfit - would include the weighting (depth)
+
+- will be a beta that ontrolls which contributes more. If data, then we want things at depth.
