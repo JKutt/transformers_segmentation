@@ -717,7 +717,6 @@ Diffusion network as regularisation results using noisy model as intitial model.
 Data fit using noisy model as intitial model.
  ```
 
-
   **initial model as a noisy distribution model and data CG kicks in halfway into the backwards time stepping:**
 
  ```{figure} ./figures/30-ddpm-integratebackwards-results-cleaned4x4.png
@@ -742,6 +741,123 @@ Diffusion network as regularisation results using noisy model as intitial model 
 
 
 Data fit using noisy model as intitial model and delayed data CG.
+ ```
+
+## Analyzing the Gradients
+
+**$\kappa$ only**
+
+ ```{figure} ./figures/grads/JustKappa/data_fit.png
+:height: 450px
+:width: 1050px
+:name: kappasolve
+:alt: diffusion network regularaisation kappa
+:align: center
+
+
+Data fit using $\kappa$ on the observed data.
+ ```
+
+  ```{figure} ./figures/grads/JustKappa/generated.png
+:height: 750px
+:width: 1150px
+:name: kappasolvegen
+:alt: diffusion network regularaisation kappa
+:align: center
+
+
+Generated models using $\kappa$ on the observed data.
+ ```
+
+ Data fit using $\kappa$ on the observed data.
+ ```
+
+```{figure} ./figures/grads/JustKappa/time999.png
+:height: 750px
+:width: 1150px
+:name: kappasolve999
+:alt: diffusion network regularaisation kappa
+:align: center
+
+
+Gradients when using $\kappa$ on the observed data.
+```
+
+ ```{figure} ./figures/grads/JustKappa/time989.png
+:height: 750px
+:width: 1150px
+:name: kappasolve999
+:alt: diffusion network regularaisation kappa
+:align: center
+
+
+Gradients when using $\kappa$ on the observed data.
+ ```
+
+ ```{figure} ./figures/grads/JustKappa/time979.png
+:height: 750px
+:width: 1150px
+:name: kappasolve999
+:alt: diffusion network regularaisation kappa
+:align: center
+
+
+Gradients when using $\kappa$ on the observed data.
+ ```
+
+ ```{figure} ./figures/grads/JustKappa/time878.png
+:height: 750px
+:width: 1150px
+:name: kappasolve999
+:alt: diffusion network regularaisation kappa
+:align: center
+
+
+Gradients when using $\kappa$ on the observed data.
+ ```
+
+ ```{figure} ./figures/grads/JustKappa/time676.png
+:height: 750px
+:width: 1150px
+:name: kappasolve676
+:alt: diffusion network regularaisation kappa
+:align: center
+
+
+Gradients when using $\kappa$ on the observed data.
+ ```
+
+ ```{figure} ./figures/grads/JustKappa/time505.png
+:height: 750px
+:width: 1150px
+:name: kappasolve505
+:alt: diffusion network regularaisation kappa
+:align: center
+
+
+Gradients when using $\kappa$ on the observed data.
+ ```
+
+```{figure} ./figures/grads/JustKappa/time252.png
+:height: 750px
+:width: 1150px
+:name: kappasolve252
+:alt: diffusion network regularaisation kappa
+:align: center
+
+
+Gradients when using $\kappa$ on the observed data.
+```
+
+```{figure} ./figures/grads/JustKappa/time0.png
+:height: 750px
+:width: 1150px
+:name: kappasolve0
+:alt: diffusion network regularaisation kappa
+:align: center
+
+
+Gradients when using $\kappa$ on the observed data.
  ```
 
 
