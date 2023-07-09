@@ -106,9 +106,15 @@ def run():
         
     )
 
-    print(rto_results.shape)
+    #some confidence interval
+    y = rto_results.mean(axis=1)
+    ci = []
+    for ii in range(n_param):
+        ci.append(1.96 * np.std(rto_results[ii, :])/np.sqrt(rto_results.shape[1]))
+
+    plt.fill_between(np.arange(100), (y-ci), (y+ci), color='b', alpha=.3, label='96% confidence')
     plt.plot(true_model, label='true model')
-    plt.plot(rto_results.mean(axis=1), 'g', label='RTO')
+    plt.plot(rto_results.mean(axis=1), label='RTO')
     plt.legend()
     plt.show()
 
