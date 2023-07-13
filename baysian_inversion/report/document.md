@@ -1,7 +1,7 @@
 ---
 # Math frontmatter:
 math:
-  '\Fm' : '\mathbf{F}(\mathbf{m})'
+  '\Fm'   : '\mathbf{F}(\mathbf{m})'
   '\d'    : '\mathbf{d}'
   '\pfx'  : '\mathbf{P}_{x}'
   '\pfy'  : '\mathbf{P}_{y}'
@@ -12,19 +12,20 @@ math:
   '\f'    : '\mathcal{f}'
   '\half' : '\frac{1}{2}'
   '\g'    : '\mathbf{G}'
+  '\cm'  : '\frac{1}{\gamma}'
 ---
 
 
-# RTO and Bayesian Inversion
+# Probabalistic Petrophysically and Geologically guided Inversion
 
 
 ## Abstract
 
 
-Soon come.
+RTO and Bayesian Inversion. More soon to come.
 
 
-## Randomize then Optimize
+## Start with Randomize then Optimize
 
 
 Based on the work of Daniel Blatter, RTO for short is represented as the similar to the deterministic inversion.
@@ -36,64 +37,77 @@ $$
 \end{aligned}
 $$
 
+We set $C_d^{-\half}=W_d$ and $L=\cm$:
+
 $$
-\label{minexpand}
+\label{minimizer2}
 \begin{aligned}
-\underset{\m}{min} \f(\m) = \half C_d^{-1} (\Fm - \tilde{\d})^{T} (\Fm - \tilde{\d}) + \frac{\mu}{2} L^{2}(\m - \tilde{\m})^{T}(\m - \tilde{\m})
+\underset{\m}{min} \f(\m) = \half || W_d \Fm - W_d \tilde{\d}||^{2} + \frac{\mu}{2}||\cm \m - \cm \tilde{\m}||^{2}
 \end{aligned}
 $$
 
-for linear case $\scriptstyle \Fm = \g\m$:
+For the linear case $\scriptstyle \Fm = \g\m$:
+
+$$
+\label{minimizer2}
+\begin{aligned}
+\underset{\m}{min} \f(\m) = \half || W_d \g \m - W_d \tilde{\d}||^{2} + \frac{\mu}{2}||\cm \m - \cm \tilde{\m}||^{2}
+\end{aligned}
+$$
+
+Expand the right handside:
 
 $$
 \label{minexpand1}
 \begin{aligned}
-\underset{\m}{min} \f(\m) = \half C_d^{-1} (\g \m - \tilde{\d})^{T} (\g\m - \tilde{\d})) + \frac{\mu}{2} L^{2}(\m - \tilde{\m})^{T}(\m - \tilde{\m})
+\underset{\m}{min} \f(\m) = \half \left( W_d^T \g^T \m^T \g W_d \m - 2 W_d^T W_d \g \m \tilde{\d} \right) + \frac{\mu}{2} \left( \m^T \m - 2 \m^T \tilde{\m} + \tilde{\m}^2 \right)
+\end{aligned}
+$$
+
+Now take the derivative:
+
+$$
+\label{minexpand1}
+\begin{aligned}
+\nabla \f(\m) = \half \left( 2 W_d^T \g^T \g W_d \m - 2 W_d^T W_d \g \tilde{\d} \right) + \frac{\mu}{2} \left( 2\m - 2 \tilde{\m} \right)
 \end{aligned}
 $$
 
 $$
-\label{minexpand2}
+\label{minexpand1}
 \begin{aligned}
-\underset{\m}{min} \hspace{0.125cm} \f(\m) = \half C_d^{-1} (\m^T \g^T \g \m - 2\m^T \g^T \tilde{\d} + \tilde{\d}^T \tilde{\d}) - \frac{\mu}{2} L^2 (\m^T \m -2 \tilde{\m}^T \m + \tilde{\m}^T \tilde{\m})
+\nabla \f(\m) = W_d^T \g^T \g W_d \m - W_d^T W_d \g \tilde{\d} + \frac{\mu}{2} \m - \frac{\mu}{2} \tilde{\m}
 \end{aligned}
 $$
 
-Take gradient:
+Set the gradient to 0:
 
 $$
-\label{minexpand3}
+\label{minexpand1}
 \begin{aligned}
-\nabla \f(\m) = \half C_d^{-1} (\g^T \g \m - 2\g^T \tilde{\d}) - \frac{\mu}{2} L^2 (\m -2 \tilde{\m}^T )
-\end{aligned}
-$$
-
-Set gradient to 0 and solve of $\m$:
-
-$$
-\label{minexpand4}
-\begin{aligned}
-0 = \half C_d^{-1} \g^T \g \m - C_d^{-1} \g^T \tilde{\d} - \frac{\mu}{2} L^2 \m - \mu L^2 \tilde{\m}
+0 = W_d^T \g^T \g W_d \m - W_d^T W_d \g \tilde{\d} + \frac{\mu}{2} \m - \frac{\mu}{2} \tilde{\m}
 \end{aligned}
 $$
 
 $$
-\label{minexpand5}
+\label{minexpand1}
 \begin{aligned}
-\half C_d^{-1} \g^T \g \m - \frac{\mu}{2} L^2 \m = C_d^{-1} \g^T \tilde{\d} + \mu L^2 \tilde{\m}
+ W_d^T \g^T \g W_d \m + \frac{\mu}{2} \m = W_d^T W_d \g \tilde{\d} + \frac{\mu}{2} \tilde{\m}
 \end{aligned}
 $$
 
 $$
-\label{minexpand6}
+\label{minexpand1}
 \begin{aligned}
-(\half C_d^{-1} \g^T \g - \frac{\mu}{2} L^2) \m = C_d^{-1} \g^T \tilde{\d} + \mu L^2 \tilde{\m}
+ \left( W_d^T \g^T \g W_d + \frac{\mu}{2} \right) \m = W_d^T W_d \g \tilde{\d} + \frac{\mu}{2} \tilde{\m}
 \end{aligned}
 $$
 
+Solve for $\m$:
+
 $$
-\label{minexpand7}
+\label{minexpand1}
 \begin{aligned}
- \m = (\half C_d^{-1} \g^T \g - \frac{\mu}{2} L^2)^{-1} (C_d^{-1} \g^T \tilde{\d} + \mu L^2 \tilde{\m})
+\m = \left( W_d^T \g^T \g W_d + \frac{\mu}{2} \right)^{-1} \left( W_d^T W_d \g \tilde{\d} + \frac{\mu}{2} \tilde{\m} \right)
 \end{aligned}
 $$
