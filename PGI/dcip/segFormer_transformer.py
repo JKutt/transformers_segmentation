@@ -48,6 +48,19 @@ class modelDataset(Dataset):
 
             self.file_list = self.filter_by_extension(os.listdir(directory), '.npy')
 
+            # now create list of true models or labels
+            train_list = []
+            for file_id in self.file_list:
+
+                if 'true' in file_id:
+
+                    pass
+                else:
+
+                    train_list.append(file_id)
+
+            self.file_list = train_list
+
         except ValueError as e:
 
             print(str(e))
@@ -61,14 +74,16 @@ class modelDataset(Dataset):
     def __getitem__(self, index):
         
         filename = os.path.join(self.directory, self.file_list[index])
-        numpy_array = np.load(filename) * self.scale
+
+        numpy_array = np.load(filename)
         tensor = torch.from_numpy(numpy_array).float().to(self.device)
 
-        if len(self.mesh_dims) == 2:
-
-            return tensor[36:164, self.slice, :64]
+        # now get the training
+        file_name_label = filename.split('.')[0] + '_true.npy'
+        numpy_array_label = np.load(file_name_label)
+        tensor_label = torch.from_numpy(numpy_array_label).float().to(self.device)
         
-        return tensor[36:164, 36:164, :64]
+        return tensor, tensor_label
     
     
     def filter_by_extension(self, string_list, extension):
