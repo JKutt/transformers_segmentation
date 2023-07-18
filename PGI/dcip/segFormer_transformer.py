@@ -76,11 +76,34 @@ class modelDataset(Dataset):
         filename = os.path.join(self.directory, self.file_list[index])
 
         numpy_array = np.load(filename)
+
+        numpy_array = np.flip(numpy_array.reshape(59, 119), [1])
+
+        dims = numpy_array.shape
+
+        # padd for equal dims
+        x1 = numpy_array.copy()
+        x2 = np.zeros((dims[0], 4))
+        x3 = np.zeros((dims[0], 5))
+        nb = np.c_[x2, x1, x3]
+        y1 = np.zeros((int(128 - dims[0]), 128))
+        numpy_array = np.r_[nb, y1]
+
         tensor = torch.from_numpy(numpy_array).float().to(self.device)
 
         # now get the training
         file_name_label = filename.split('.')[0] + '_true.npy'
         numpy_array_label = np.load(file_name_label)
+        numpy_array_label = np.flip(numpy_array_label.reshape(59, 119), [1])
+
+        # padd for equal dims
+        x1 = numpy_array_label.copy()
+        x2 = np.zeros((dims[0], 4))
+        x3 = np.zeros((dims[0], 5))
+        nb = np.c_[x2, x1, x3]
+        y1 = np.zeros((int(128 - dims[0]), 128))
+        numpy_array_label = np.r_[nb, y1]
+
         tensor_label = torch.from_numpy(numpy_array_label).float().to(self.device)
         
         return tensor, tensor_label

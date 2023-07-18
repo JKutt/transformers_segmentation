@@ -32,7 +32,7 @@ actcore,  meshCore = discretize.utils.mesh_utils.ExtractCoreMesh(xyzlim, mesh)
 actind = np.ones_like(actcore)
 
 batch_size=10
-dataset = modelDataset(directory='/home/juan/Documents/git/jresearch/PGI/dcip/train_transformer')
+dataset = modelDataset(directory='PGI/dcip/train_transformer')
 train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 # Getting device
@@ -49,42 +49,44 @@ network = SegFormer(
     reduction_ratios=[8, 4, 2, 1],
     mlp_expansions=[4, 4, 4, 4],
     decoder_channels=256,
-    scale_factors=[8, 4, 2, 1],
+    scale_factors=[32, 16, 8, 4],
     num_classes=1,
 )
 
-segmentation = network(torch.randn((10, 1, 224, 224)))
-segmentation.shape # torch.Size([1, 100, 56, 56])
+# segmentation = network(torch.randn((10, 1, 128, 128)))
+# segmentation.shape # torch.Size([1, 100, 56, 56])
 
 # criterion = nn.CrossEntropyLoss()
-# optimizer = optim.SGD(network.parameters(), lr=0.001, momentum=0.9)
+criterion = nn.MSELoss()
+optimizer = optim.Adam(network.parameters(), lr=0.001)
 
-# # loop over the dataset multiple times
-# for epoch in range(4):
+# loop over the dataset multiple times
+for epoch in range(4):
 
-#     running_loss = 0.0
+    running_loss = 0.0
 
-#     for i, data in enumerate(train_loader, 0):
+    for i, data in enumerate(train_loader, 0):
 
-#         # get the inputs; data is a list of [inputs, labels]
-#         inputs, labels = data
-#         train_model = inputs.reshape(-1, 59, 119).flip([1]).view(-1, 1, 59, 119)
-#         train_label = labels.reshape(-1, 59, 119).flip([1]).view(-1, 1, 59, 119)
+        # get the inputs; data is a list of [inputs, labels]
+        inputs, labels = data
+        train_model = inputs.view(-1, 1, 128, 128)
+        train_label = labels.view(-1, 1, 128, 128)
 
-#         # zero the parameter gradients
-#         optimizer.zero_grad()
+        # zero the parameter gradients
+        optimizer.zero_grad()
 
-#         # forward + backward + optimize
-#         outputs = network(train_model)
-#         loss = criterion(outputs, train_label)
-#         loss.backward()
-#         optimizer.step()
+        # forward + backward + optimize
+        outputs = network(train_model)
+        loss = criterion(outputs, train_label)
+        loss.backward()
+        optimizer.step()
 
-#         # print statistics
-#         running_loss += loss.item()
-#         if i % 1000 == 999:  # print every 2000 mini-batches
-#             print('[%d, %5d] loss: %.3f' %
-#                     (epoch + 1, i + 1, running_loss / 2000))
-#             running_loss = 0.0
+        # print statistics
+        running_loss += loss.item()
+        print(f"running loss: {loss.item()}")
+        if i % 1000 == 999:  # print every 2000 mini-batches
+            print('[%d, %5d] loss: %.3f' %
+                    (epoch + 1, i + 1, running_loss / 2000))
+            running_loss = 0.0
 
-# torch.save(network, 'bestModeltransformer')
+torch.save(network, 'bestModeltransformer')
