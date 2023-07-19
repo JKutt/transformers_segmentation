@@ -48,7 +48,7 @@ class magnetics(nn.Module):
         self.dirs   = dirs  # magnetic field directions [A, I, A0, I0]
         self.device = device 
         dV = torch.prod(self.h)
-        mu_0 = 4*np.pi*1e-7
+        mu_0 = 1
         zeta = mu_0 / (4 * np.pi)
         self.mudV = zeta*dV
 
@@ -78,12 +78,10 @@ class magnetics(nn.Module):
         for i in range(M.shape[-1]):
             
             # pull out the layer from the model
-            I = M[:,:,i]
+            I = M[:, :, :,:,i].to(self.device)
 
             # calculate the response the layer of the model
             P, center, Rf = self.psfLayer(Z)
-
-            # print(f"shape of P matrix: {P.shape}")
             
             # use centers and the response and shift the data for FD operations
             S = self.fft_kernel(P, center)
@@ -98,7 +96,7 @@ class magnetics(nn.Module):
             B = torch.fft.fftshift(B)
 
             # convert back to spatial domain
-            B = torch.abs(torch.fft.ifft2(B))
+            B = torch.real(torch.fft.ifft2(B))
 
             # add the data response from the layer
             Data = Data+B
@@ -119,7 +117,7 @@ class magnetics(nn.Module):
         Dz = self.h[2]
         
         Z = Dz/2
-        M  = torch.zeros(self.dim[0], self.dim[1], self.dim[2], device=self.device)
+        M  = torch.zeros(self.dim[0], self.dim[1], self.dim[2], self.dim[3], self.dim[4], device=self.device)
         
         for i in range(M.shape[-1]):
 
@@ -141,7 +139,7 @@ class magnetics(nn.Module):
             B = torch.fft.fftshift(B)
             
             # add the data response from the layer
-            M[:,:,i] = B
+            M[:, :, :,:,i] = B
             Z = Z + Dz
         
         return self.mudV*M
@@ -152,7 +150,7 @@ class magnetics(nn.Module):
          # I0 is the geomagnetic dip angle
          # A0 is the geomagnetic deflection angle
 
-        dim2 = torch.div(self.dim,2,rounding_mode='floor')
+        dim2 = torch.div(self.dim[-3:],2,rounding_mode='floor')
         Dx = self.h[0]
         Dy = self.h[1]
         I  = self.dirs[0]
@@ -185,158 +183,6 @@ class magnetics(nn.Module):
               PSFz*torch.sin(I0) 
         
         return PSF, center, Rf
-
-
-class magnetics2d(nn.Module):
-    
-    def __init__(self, dim, h, dirs, device='cuda'):
-        super(magnetics2d, self).__init__()
-        self.dim    = dim   # Mesh size [nx, ny, nz]
-        self.h      = h     # cell size [Dx, Dy, Dz]
-        self.dirs   = dirs  # magnetic field directions [A, I, A0, I0]
-        self.device = device 
-        dV = torch.prod(self.h)
-        mu_0 = 4*np.pi*1e-7
-        zeta = mu_0 / (4 * np.pi)
-        self.mudV = zeta*dV
-
-    def fft_kernel(self, P, center):
-            # use centers and the response and shift the data for FD operations
-            S = torch.fft.fftshift(torch.roll(P, shifts=center, dims=[2,3]), dim=[2,3])
-            print(S.shape)
-            # take the fft
-            S = torch.fft.fft2(S)
-            # shift again to swap quadrants
-            S = torch.fft.fftshift(S, dim=(2,3))
-            return S
-
-    def forward(self, M):
-        """
-            Solve the forward problem using FFT
-            :param M: model
-            :type M: Tensor
-        """
-        M = M[:, :, :, None, :]
-        M = torch.repeat_interleave(M, 2, dim=3)
-        # define the constants
-        Dz = self.h[2]
-        Z  = Dz/2
-        
-        Data = 0 
-        
-        # loop through each layer of the model
-        for i in range(M.shape[-1]):
-            
-            # pull out the layer from the model
-            I = M[:, :, :,:,i]
-
-            # calculate the response the layer of the model
-            P, center, Rf = self.psfLayer(Z)
-
-            print(f"shape of P matrix: {P.shape}")
-            
-            # use centers and the response and shift the data for FD operations
-            S = self.fft_kernel(P, center)
-
-            # do the same to model tensor
-            I_fft = torch.fft.fftshift(I, dim=(2, 3))
-            I_fft = torch.fft.fft2(I_fft)
-            I_fft = torch.fft.fftshift(I_fft, dim=(2, 3))
-            print(S.shape, I.shape, I_fft.shape)
-            # perform the FD operations
-            B = S * I_fft
-            B = torch.fft.fftshift(B, dim=(2, 3))
-
-            # convert back to spatial domain
-            B = torch.abs(torch.fft.ifft2(B))
-
-            # add the data response from the layer
-            Data = Data+B
-            Z = Z + Dz
-        Data = Data.mean(dim=3)
-        return self.mudV * Data
-    
-    def adjoint_a(self, I):
-        # Adjoint for testing
-        a = torch.ones(self.dim[0], self.dim[1], self.dim[2], requires_grad=True, device=self.device)
-        d = self.forward(a)
-        b = torch.sum(d*I)
-        out = grad(b,a)[0]
-        return out
-
-    def adjoint(self, I):
-        I = I[:, :, :, None]
-        I = torch.repeat_interleave(I, 2, dim=3)
-        Dz = self.h[2]
-        
-        Z = Dz/2
-        M  = torch.zeros(I.shape[0], 1, self.dim[0], self.dim[1], self.dim[2], device=self.device)
-        
-        for i in range(M.shape[-1]):
-
-            # calculate the response the layer of the model
-            P, center, Rf = self.psfLayer(Z)
-            # use centers and the response and shift the data for FD operations
-            S = self.fft_kernel(P, center)
-
-            # do the same to model tensor
-            I_fft = torch.fft.fft2(I)
-            I_fft = torch.fft.fftshift(I_fft, dim=(2,3))
-
-            # perform the FD operations
-            B = torch.adjoint(S) * I_fft
-
-            # convert back to spatial domain
-            B = torch.fft.fftshift(B, dim=(2,3))
-            B = torch.real(torch.fft.ifft2(B))
-            B = torch.fft.fftshift(B, dim=(2,3))
-            
-            # add the data response from the layer
-            M[:, :, :, :, i] = B
-            Z = Z + Dz
-        M = M.mean(dim=3)
-        return self.mudV*M
-    
-    def psfLayer(self, Z):
-         #I is the magnetization dip angle 
-         # A is the magnetization deflection angle
-         # I0 is the geomagnetic dip angle
-         # A0 is the geomagnetic deflection angle
-
-        dim2 = torch.div(self.dim,2,rounding_mode='floor')
-        Dx = self.h[0]
-        Dy = self.h[1]
-        I  = self.dirs[0]
-        A  = self.dirs[1]
-        I0 = self.dirs[2]
-        A0 = self.dirs[3]
-        
-        x = Dx*torch.arange(-dim2[0]+1,dim2[0]+1, device=self.device)
-        y = Dy*torch.arange(-dim2[1]+1,dim2[1]+1, device=self.device)
-        X,Y = torch.meshgrid(x,y)
-
-        # Get center ready for fftshift.
-        center = [1 - int(dim2[0]), 1 - int(dim2[1])]
-
-        Rf = torch.sqrt(X**2 + Y**2 + Z**2)**5
-        PSFx = (2*X**2 - Y**2 - Z**2)/Rf*torch.cos(I)*torch.sin(A) + \
-               3*X*Y/Rf*torch.cos(I)*torch.cos(A) + \
-               3*X*Z/Rf*torch.sin(I)
-
-        PSFy = 3*X*Y/Rf*torch.cos(I)*torch.sin(A) + \
-               (2*Y**2 - X**2 - Z**2)/Rf*torch.cos(I)*torch.cos(A) + \
-               3*Y*Z/Rf*torch.sin(I)
-
-        PSFz = 3*X*Z/Rf*torch.cos(I)*torch.sin(A) + \
-               3*Z*Y/Rf*torch.cos(I)*torch.cos(A) +\
-               (2*Z**2 - X**2 - Y**2)/Rf*torch.sin(I)
-
-        PSF = PSFx*torch.cos(I0)*torch.cos(A0) + \
-              PSFy*torch.cos(I0)*torch.sin(A0) + \
-              PSFz*torch.sin(I0) 
-        
-        return PSF.unsqueeze(0).unsqueeze(0), center, Rf.unsqueeze(0).unsqueeze(0)
-
 
 if False:
 
