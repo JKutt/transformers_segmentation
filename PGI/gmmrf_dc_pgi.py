@@ -543,7 +543,7 @@ clf_nguyen.compute_clusters_precisions()
 clf_nguyen.weights_ /= clf_nguyen.weights_.sum(axis=1)[:,np.newaxis]
 
 # Create data misfit object
-dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
+# dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
 
 # Create the regularization with GMM information
 idenMap = maps.IdentityMap(nP=m0.shape[0])
@@ -555,108 +555,255 @@ wires = maps.Wires(("m", m0.shape[0]))
 #     mesh=mesh, wiresmap=wires, maplist=[idenMap], mref=mref, indActive=actcore
 # )
 cell_weights_list = [np.ones(m0.shape[0])]
-reg_mean_potts = utils.make_PGI_regularization(
-    gmmref=clf_nguyen,
-    mesh=mesh,
-    wiresmap=wires,
-    maplist=[idenMap],
-    indActive=actcore,
-    alpha_s=1,
-    alpha_x=[1.0],
-    alpha_y=[1.0],
-    mref=mref,
-    cell_weights_list=cell_weights_list,
-)
 
-# Regularization Weighting
-alpha_s = 1.
-alpha_x = 1.0
-alpha_y = 1.0
-reg_mean_potts.alpha_s = alpha_s
-reg_mean_potts.alpha_x = alpha_x
-reg_mean_potts.alpha_y = alpha_y
-reg_mean_potts.mrefInSmooth = False
-
-# Optimization
-opt = optimization.ProjectedGNCG(
-    maxIter=50, lower=-10, upper=10, maxIterLS=20, maxIterCG=20, tolCG=1e-5
-)
-opt.remember("xc")
-
-# Set the inverse problem
-invProb = inverse_problem.BaseInvProblem(dmis, reg_mean_potts, opt)
-
-# Inversion directives
-## Beta Strategy with Beta and Alpha
-beta_value = directives.BetaEstimate_ByEig(beta0_ratio=10.,n_pw_iter=10)
-alphas_value = directives.AlphasSmoothEstimate_ByEig(
-    alpha0_ratio= np.r_[0,5.,5.,0.5,0.5],verbose=True,n_pw_iter=10,
-)
-beta_alpha_iteration = directives.PGI_BetaAlphaSchedule(
-    verbose=True,
-    coolingFactor=2.0,
-    tolerance=0.2,  # Tolerance on Phi_d for beta-cooling
-    progress=0.2,  # Minimum progress, else beta-cooling
-)
-## PGI multi-target misfits
-targets = directives.MultiTargetMisfits(verbose=True,)
-## Put learned reference model in Smoothness once stable
-MrefInSmooth = directives.PGI_AddMrefInSmooth(
-    verbose=True,
-    tolerance=0.001,
-)
-## PGI update to the GMM, Smallness reference model and weights: 
-## **This one is required when using the Least-Squares approximation of PGI 
-petrodir = directives.PGI_UpdateParameters(update_gmm=True,zeta=0.)
-## Sensitivity weights based on the starting half-space
-updateSensW = directives.UpdateSensitivityWeights(threshold=1e-2, everyIter=True)
-## Preconditioner
-update_Jacobi = directives.UpdatePreconditioner()
-
-# Rule of thumb for Potts model: indiag log coeff = 1/reg_covar of clf
-#Rule unit 1 and 2 should be at least 4 cells apart
-Pottmatrix = np.zeros([4,4])
-#Pottmatrix[0,1] = -1*float(1./clf_nguyen.covariances_[0])**3.
-#Pottmatrix[1,0] = -1*float(1./clf_nguyen.covariances_[0])**3.
-#Pottmatrix[0,-2] = -1*float(1./clf.covariances_)**3.
-#Pottmatrix[-2,0] = -1*float(1./clf.covariances_)**3.
-for i in range(Pottmatrix.shape[0]):
-    Pottmatrix[i,i] = 1e0
-Pottmatrix[-1,-1] = 1e0
-#anisotropy = np.eye(2)
-#anisotropy[0][0] = 10
-#print(anisotropy)
-
-# smoothref = directives.PGI_GMMRF_IsingModel(
-#     neighbors=18, verbose=True,
-#     max_probanoise=1e-3,
-#     maxit_factor=5.,
-#     # maxit=2*mesh.nC,
-#     Pottmatrix=Pottmatrix,
-#     anisotropies = {'anisotropy':[anis_vertical,anisotropy,anisotropy,anis_dike],'norm':[2,2,2,2]}#clf_nguyen.index_anisotropy
+# reg_mean_potts = regularization.PGI(
+#     gmmref=clf_nguyen,
+#     mesh=mesh,
+#     wiresmap=wires,
+#     maplist=[idenMap],
+#     indActive=actcore,
+#     mref=mref,
+#     cell_weights_list=cell_weights_list,
 # )
 
-plot_mref = Plot_mref()
+# # Regularization Weighting
+# alpha_s = 1.
+# alpha_x = 1.0
+# alpha_y = 1.0
+# reg_mean_potts.alpha_s = alpha_s
+# reg_mean_potts.alpha_x = alpha_x
+# reg_mean_potts.alpha_y = alpha_y
+# reg_mean_potts.mrefInSmooth = False
 
-# Inversion
-inv = inversion.BaseInversion(
-    invProb,
-    # directives list: the order matters!
-    directiveList=[
-        updateSensW,
-        alphas_value,
-        beta_value,
-        petrodir,
-        targets,
-        beta_alpha_iteration,
-        # smoothref,
-        MrefInSmooth,
-        update_Jacobi,
-        plot_mref,
-    ],
+# # Optimization
+# opt = optimization.ProjectedGNCG(
+#     maxIter=50, lower=-10, upper=10, maxIterLS=20, maxIterCG=20, tolCG=1e-5
+# )
+# opt.remember("xc")
+
+# # Set the inverse problem
+# invProb = inverse_problem.BaseInvProblem(dmis, reg_mean_potts, opt)
+
+# # Inversion directives
+# ## Beta Strategy with Beta and Alpha
+# beta_value = directives.BetaEstimate_ByEig(beta0_ratio=10.,n_pw_iter=10)
+# alphas_value = directives.AlphasSmoothEstimate_ByEig(
+#     alpha0_ratio= np.r_[0,5.,5.,0.5,0.5],verbose=True,n_pw_iter=10,
+# )
+# beta_alpha_iteration = directives.PGI_BetaAlphaSchedule(
+#     verbose=True,
+#     coolingFactor=2.0,
+#     tolerance=0.2,  # Tolerance on Phi_d for beta-cooling
+#     progress=0.2,  # Minimum progress, else beta-cooling
+# )
+# ## PGI multi-target misfits
+# targets = directives.MultiTargetMisfits(verbose=True,)
+# ## Put learned reference model in Smoothness once stable
+# MrefInSmooth = directives.PGI_AddMrefInSmooth(
+#     verbose=True,
+#     tolerance=0.001,
+# )
+# ## PGI update to the GMM, Smallness reference model and weights: 
+# ## **This one is required when using the Least-Squares approximation of PGI 
+# petrodir = directives.PGI_UpdateParameters(update_gmm=True,zeta=0.)
+# ## Sensitivity weights based on the starting half-space
+# updateSensW = directives.UpdateSensitivityWeights(threshold=1e-2, everyIter=True)
+# ## Preconditioner
+# update_Jacobi = directives.UpdatePreconditioner()
+
+# # Rule of thumb for Potts model: indiag log coeff = 1/reg_covar of clf
+# #Rule unit 1 and 2 should be at least 4 cells apart
+# Pottmatrix = np.zeros([4,4])
+# #Pottmatrix[0,1] = -1*float(1./clf_nguyen.covariances_[0])**3.
+# #Pottmatrix[1,0] = -1*float(1./clf_nguyen.covariances_[0])**3.
+# #Pottmatrix[0,-2] = -1*float(1./clf.covariances_)**3.
+# #Pottmatrix[-2,0] = -1*float(1./clf.covariances_)**3.
+# for i in range(Pottmatrix.shape[0]):
+#     Pottmatrix[i,i] = 1e0
+# Pottmatrix[-1,-1] = 1e0
+# #anisotropy = np.eye(2)
+# #anisotropy[0][0] = 10
+# #print(anisotropy)
+
+# # smoothref = directives.PGI_GMMRF_IsingModel(
+# #     neighbors=18, verbose=True,
+# #     max_probanoise=1e-3,
+# #     maxit_factor=5.,
+# #     # maxit=2*mesh.nC,
+# #     Pottmatrix=Pottmatrix,
+# #     anisotropies = {'anisotropy':[anis_vertical,anisotropy,anisotropy,anis_dike],'norm':[2,2,2,2]}#clf_nguyen.index_anisotropy
+# # )
+
+# plot_mref = Plot_mref()
+
+# # Inversion
+# inv = inversion.BaseInversion(
+#     invProb,
+#     # directives list: the order matters!
+#     directiveList=[
+#         updateSensW,
+#         alphas_value,
+#         beta_value,
+#         petrodir,
+#         targets,
+#         beta_alpha_iteration,
+#         # smoothref,
+#         MrefInSmooth,
+#         update_Jacobi,
+#         plot_mref,
+#     ],
+# )
+# -----------------------------------------------------------------
+
+# forward
+
+#
+
+# dpred = sim.make_synthetic_data(mtrue[actcore], relative_error=std, force=True)
+
+# Data misfit
+dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
+
+# -----------------------------------------------------------------
+
+# gmm
+
+#
+
+# Generate the GMM petrophysical distribution
+# n = 4
+# gmmref = utils.WeightedGaussianMixture(
+    
+#     n_components=n,
+#     mesh=mesh,
+#     actv=actcore,
+#     covariance_type='full',
+#     max_iter=1000,
+#     n_init=10,
+#     reg_covar=4e-3,
+
+# )
+
+# gmmref.fit(mtrue[actcore].reshape(-1, 1))
+
+# gmmref.means = np.r_[-np.log(100.0), -np.log(50.0), -np.log(250.0), -np.log(10)][:, np.newaxis]
+
+# gmmref.covariances_ = np.array([[[0.005]],[[0.01]], [[0.005]],[[0.005]]])
+
+# gmmref.compute_clusters_precisions()
+gmmref = clf_nguyen
+
+# -----------------------------------------------------------------
+
+# inversion
+
+#
+
+m0 = np.log(1/100) * np.ones(mapping.nP)
+# Create the regularization with GMM information
+idenMap = maps.IdentityMap(nP=m0.shape[0])
+wires = maps.Wires(('m', m0.shape[0]))
+reg_mean = regularization.PGI(
+    gmmref=gmmref,  mesh=mesh,
+    wiresmap=wires,
+    maplist=[idenMap],
+    reference_model=m0,
+    indActive=actcore
 )
-np.random.seed(518936)
-# Run the inversion
-m_gmmrf = inv.run(m0)
 
+# Weighting
+reg_mean.alpha_s = 1
+reg_mean.alpha_x = 100
+reg_mean.alpha_y = 100
+# reg_mean.mrefInSmooth = True
+# reg_mean.approx_gradient = True
+
+
+# Optimization
+opt = optimization.ProjectedGNCG(maxIter=20, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
+opt.remember('xc')
+
+# Set the inverse problem
+invProb = inverse_problem.BaseInvProblem(dmis,  reg_mean,  opt)
+
+# Inversion directives
+betaIt = directives.PGI_BetaAlphaSchedule(
+    verbose=True, coolingFactor=5.,
+    warmingFactor=1., tolerance=0.05,
+    progress=0.1
+)
+targets = directives.MultiTargetMisfits(
+    TriggerSmall=True,
+    TriggerTheta=False,
+    verbose=True,
+)
+MrefInSmooth = directives.PGI_AddMrefInSmooth(verbose=True,  wait_till_stable=True, tolerance=0.0)
+petrodir = directives.PGI_UpdateParameters(
+    update_covariances=True,
+    kappa = 1e8,
+    nu = 1e8,
+    # update_reference_model=(False)
+    )
+
+
+mref_plot = Plot_mref()
+updateSensW = directives.UpdateSensitivityWeights(threshold=1e-2, everyIter=False)
+update_Jacobi = directives.UpdatePreconditioner()
+invProb.beta = 1e-2
+inv = inversion.BaseInversion(invProb,
+                            directiveList=[
+                                             updateSensW,
+                                            petrodir,
+                                            targets, betaIt,
+                                            MrefInSmooth,
+                                             update_Jacobi,
+                                             mref_plot,
+                                            ])
+
+# Run!
+mcluster = inv.run(m0)
+
+# np.save('complex_model.npy', mcluster)
+mcluster = np.load('complex_model.npy')
+
+# from segment_anything import sam_model_registry
+# from segment_anything import SamAutomaticMaskGenerator
+from PIL import Image
+from matplotlib import cm
+# import cv2
+
+# sam = sam_model_registry["vit_h"](checkpoint=r"C:\Users\johnk\Documents\git\jresearch\PGI\dcip\sam_vit_h_4b8939.pth")
+# mask_generator = SamAutomaticMaskGenerator(sam)
+
+myarray = np.exp(mcluster) / np.abs(np.exp(mcluster)).max()
+
+image_rgb = Image.fromarray(np.uint8(cm.jet(myarray.reshape(meshCore.shape_cells, order='F'))*255))
+image_rgb = image_rgb.convert('RGB')
+
+np.save('complex_geology_prepped.npy', image_rgb)
+
+# plt.savefig('test_image.png')
+# result = mask_generator.generate(np.asarray(image_rgb))
+
+# from scipy import stats
+# # print(np.bincount(onion.flatten()))
+
+# fig, ax = plt.subplots(2,2, figsize=(10, 10))
+# result[0].keys()
+# ax[0, 0].imshow(np.log(myarray.reshape(meshCore.shape_cells, order='F')).T)
+# ax[0, 0].invert_yaxis()
+# ax[0, 0].set_title('PGI recovered model')
+
+# # for i in range(4):
+# ax[0, 1].imshow(result[1]['segmentation'].T)
+# ax[0, 1].invert_yaxis()
+# ax[0, 1].set_title('SAM segmentation item 1')
+# ax[1, 0].imshow(result[2]['segmentation'].T)
+# ax[1, 0].invert_yaxis()
+# ax[1, 0].set_title('SAM segmentation item 2')
+# ax[1, 1].imshow(result[3]['segmentation'].T)
+# ax[1, 1].invert_yaxis()
+# ax[1, 1].set_title('SAM segmentation item 3')
+# plt.tight_layout()
+# plt.show()
 
