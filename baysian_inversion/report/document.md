@@ -1,113 +1,151 @@
 ---
 # Math frontmatter:
+title: Bayesian Inversion And Sampling methods
+exports:
+  - format: pdf
+    template: arxiv_two_column
+    output: ./figures/document.pdf
 math:
-  '\Fm'   : '\mathbf{F}(\mathbf{m})'
-  '\d'    : '\mathbf{d}'
-  '\pfx'  : '\mathbf{P}_{x}'
-  '\pfy'  : '\mathbf{P}_{y}'
-  '\pfz'  : '\mathbf{P}_{z}'
-  '\l'    : '\mathbf{L}'
-  '\r'    : '\mathbf{r}'
-  '\m'    : '\mathbf{m}'
-  '\f'    : '\mathcal{f}'
-  '\half' : '\frac{1}{2}'
-  '\g'    : '\mathbf{G}'
-  '\cm'  : '\frac{1}{\gamma}'
+  '\marginal' : '\mathcal{P}(\mathbf{d} | \mathbf{m})'
+  '\posterior' : '\mathcal{P}(\mathbf{m} | \mathbf{d})'
+  '\prior'     : '\mathcal{P}(\mathbf{m})'
+  '\mariginalp' : '\mathcal{P}(\tilde{\mathbf{d}} | \mathbf{m})'
+  '\posteriorp' : '\mathcal{P}(\tilde{\mathbf{m}} | \tilde{\mathbf{d}})'
+  '\priorp'     : '\mathcal{P}(\tilde{\mathbf{m}})'
+  '\marginalu' : '\mathcal{P}(\mathbf{d} | \mathbf{m}, \mu)'
+  '\posterioru' : '\mathcal{P}(\mathbf{m}, \mu | \mathbf{d})'
+  '\prioru'     : '\mathcal{P}(\mathbf{m} | \mu)'
+  '\priormu'    : '\mathcal{P}(\mu)'
+  '\fm'        : '\mathcal{F}(\mathbf{m})'
+  '\fmp'        : '\mathcal{F}(\tilde{\mathbf{m}})'
+  '\d'         : '\mathbf{d}'
+  '\m'         : '\mathbf{m}'
+  '\wd'         : '\mathbf{W}_d'
+  '\dp'         : '\tilde{\mathbf{d}}'
+  '\mp'         : '\tilde{\mathbf{m}}'
+
 ---
 
+## Background
 
-# Probabalistic Petrophysically and Geologically guided Inversion
+Deterministic geophysical inversion often negates the entire model space and produces a single maximum likelihood model where one model is then objectively decided for the interpretation. However, the geophysical inverse problem is non-unique meaning many solutions exist. Uncertainty quantification on the other hand allows us to examine the entire solution space giving us a confidence criteria for a given result. Regularization plays an important role in shaping the solution space as it penalizes or promotes certain models. In deterministic inversion, uncertainty estimates can be obtained from regularized methods via a local linearization comparing a pre selected reference model ([](https://doi.org/10.1137/1.9780898717921)). Others regularized methods explore the model space via norms ([](https://doi.org/10.1093/gji/ggz156)). These methods can constrain the choice of models for various effect be it sharpening boundaries, compacting or stretching features. In the Bayesian approach the prior is our choice of regularization and the choice of prior will then influence the uncertainty estimates in a non-linear way. By adjusting the regularization we can hope to recover better estimates for depth to interfaces or overall sharper recovered models. In addition we can expect better recovered physical property estimates. This is particularly important when using DC-resistivity and magnetotellurics to determine depth to bedrock unconformities or the dips and geometries of a geological unit. By using the probabilistic interpretation of a regularized inversion we can calculate a posterior where Bayesian sampling methods are used to recover models. This allows us to easily substitute in different regularizations and sampling methods to generate uncertainty information used to interpret the recovered models.
 
-
-## Abstract
-
-
-RTO and Bayesian Inversion. More soon to come.
-
-
-## Start with Randomize then Optimize
-
-
-Based on the work of Daniel Blatter, RTO for short is represented as the similar to the deterministic inversion.
+To calculate the posterior we first use a randomize then optimize (RTO) approach by generating a perturbed model and data distributions ([](https://doi.org/10.1137/140964023)). By perturbing both an uncertainty can be extracted by sampling from posterior giving us solutions using the perturbed inputs. The objective function can be represented in a probabilistic form using Bayes Theorem:
 
 $$
-\label{minimizer}
+\posterior \propto \marginal \prior
+$$
+
+where the marginal and prior are:
+
+$$
+\marginal \propto \exp \left( -\frac{1}{2} \| \wd \left( \fm - \dp \right) \|^{2} \right)
+$$
+
+$$
+\prior \propto \exp \left( -\frac{\beta}{2} \| L (\m - \mp) \|^{2} \right)
+$$
+
+giving us the minimizer:
+
+$$
+\label{reginv}
 \begin{aligned}
-\underset{\m}{min} \f(\m) = \half || C_d^{-\half} (\Fm - \tilde{\d}))||^{2} + \frac{\mu}{2}||L(\m - \tilde{\m})||^{2}
+\underset{\m}{min} \; f(\m) = \frac{1}{2} \| \wd \left( \fm - \dp \right) \|^{2} + \frac{\beta}{2} \| L (\m - \mp) \|^{2}
 \end{aligned}
 $$
 
-We set $C_d^{-\half}=W_d$ and $L=\cm$:
+where $\m$ is the model parameters vector, $\d$ is the data vector, $\fm$ is the predicted data given a model $\m$, $\wd$ is the noise covariance matrix of the measured data, L represents the regularization operator, $\dp \sim \mathcal{N}(\d, \sqrt{\wd})$ is the perturbed data, $\mp \sim \mathcal{N}(0, \frac{1}{\beta}\left( L^T L\right)^{-1})$ is the perturbed model and $\beta$ is the trade-off parameter for the regularization. 
 
-$$
-\label{minimizer2}
-\begin{aligned}
-\underset{\m}{min} \f(\m) = \half || W_d \Fm - W_d \tilde{\d}||^{2} + \frac{\mu}{2}||\cm \m - \cm \tilde{\m}||^{2}
-\end{aligned}
-$$
+We can explore the model space by drawing samples $\m^i$ where $i=1,...,N_{samples}$ via Gibbs sampling; $i$ representing the Gibbs sampling iteration. Within the Gibbs sampling steps there are many choices of sampler techniques to use such as Markov chain Monte Carlo and Metropolis-Hastings. These in particular perform an accept/reject at every iteration of the Markov chain. This can be computationally expensive as the number of samples gets large. That is due to the serial loop in the algorithms where the $i^{th}$ iteration depends on $i - 1$. These methods though are proven to converge and are reliable. 
 
-For the linear case $\scriptstyle \Fm = \g\m$:
+In the work of [](https://doi.org/10.1093/gji/ggac241) all RTO samples are accepted resulting in a biased distribution, but shown to be still a good approximation of the Bayesian posterior for electromagnetic problems. By accepting all samples, every iteration is independent of each other and the problem becomes highly parallelizable and efficient. Furthermore, the RTO algorithm can be modified to provide a way to calculate a distribution for the tradeoff parameter $\beta$ by treating it as an unknown to get a posterior $\posterioru$ called the RTO-TKO method ([](https://doi.org/10.1093/gji/ggac241) Part I and [](https://doi.org/10.1093/gji/ggac242) Part II). In this case every Gibbs iteration produces $\m^{i+1}, \mu^{i + 1}$ pairs of samples. The RTO-TKO algorithm provides yet another control on the regularization by allowing a choice of the prior $\priormu$.
 
-$$
-\label{minimizer2}
-\begin{aligned}
-\underset{\m}{min} \f(\m) = \half || W_d \g \m - W_d \tilde{\d}||^{2} + \frac{\mu}{2}||\cm \m - \cm \tilde{\m}||^{2}
-\end{aligned}
-$$
+Beginning with a linear problem we can compare the results of the RTO and RTO-TKO to a typical deterministic inversion. In [](#linearmod) the RTO and RTO-TKO results show all the models that fall within the 95th percentile. In [](#betadist) shows us the distribution of the most frequent $\beta$'s that give us optimal results. From the following results we get a $\phi_d^{RTO}=37.04$ with set $\beta=10$ and $\phi_d^{RTO-TKO}=16.79$ using the mean of the $\beta$ distribution $\beta=3.76$. Our $\phi_d^*=20$ for this linear model case. The model norms are $\phi_m^{RTO}=323.31$ and $\phi_m^{RTO}=362.59$ respectively.
 
-Expand the right handside:
+```{figure} ./figures/linear_models_result.png
+:height: 350px
+:width: 450px
+:name: linearmod
+:alt: linear model results
+:align: center
 
-$$
-\label{minexpand1}
-\begin{aligned}
-\underset{\m}{min} \f(\m) = \half \left( W_d^T \g^T \m^T \g W_d \m - 2 W_d^T W_d \g \m \tilde{\d} \right) + \frac{\mu}{2} \left( \m^T \m - 2 \m^T \tilde{\m} + \tilde{\m}^2 \right)
-\end{aligned}
-$$
 
-Now take the derivative:
+Recovered models for RTO, RTO-TKO and deterministic methods
+```
 
-$$
-\label{minexpand1}
-\begin{aligned}
-\nabla \f(\m) = \half \left( 2 W_d^T \g^T \g W_d \m - 2 W_d^T W_d \g \tilde{\d} \right) + \frac{\mu}{2} \left( 2\m - 2 \tilde{\m} \right)
-\end{aligned}
-$$
+```{figure} ./figures/rto-tko_beta_dist_linear_model.png
+:height: 350px
+:width: 450px
+:name: betadist
+:alt: linear model results
+:align: center
 
-$$
-\label{minexpand1}
-\begin{aligned}
-\nabla \f(\m) = W_d^T \g^T \g W_d \m - W_d^T W_d \g \tilde{\d} + \frac{\mu}{2} \m - \frac{\mu}{2} \tilde{\m}
-\end{aligned}
-$$
 
-Set the gradient to 0:
+Distribution of trade off parameter $\beta$
+```
 
-$$
-\label{minexpand1}
-\begin{aligned}
-0 = W_d^T \g^T \g W_d \m - W_d^T W_d \g \tilde{\d} + \frac{\mu}{2} \m - \frac{\mu}{2} \tilde{\m}
-\end{aligned}
-$$
+Using the Bayesian inversion approach we can explore a model space for various regularizations comparing the uncertainty quantification between each. In addition, with RTO-TKO we can further probe the regularization choices by analyzing the regularization $\beta$ distribution. These distributions often have large variance and multiple peaks. Exploring the differences in models given different high probability $\beta$'s can give much needed insight into uncertainty in our recovered interfaces for the DC-resistivity and magnetotellurics problems. Both 1-D and 2-D simulations using the RTO method as a base will be generated and compared to traditional geophysical inversion results in order to illustrate the improvement in interpretation. 
 
-$$
-\label{minexpand1}
-\begin{aligned}
- W_d^T \g^T \g W_d \m + \frac{\mu}{2} \m = W_d^T W_d \g \tilde{\d} + \frac{\mu}{2} \tilde{\m}
-\end{aligned}
-$$
 
-$$
-\label{minexpand1}
-\begin{aligned}
- \left( W_d^T \g^T \g W_d + \frac{\mu}{2} \right) \m = W_d^T W_d \g \tilde{\d} + \frac{\mu}{2} \tilde{\m}
-\end{aligned}
-$$
+## 3D DCIP acquisition with Latin-hypercube sampled injections
 
-Solve for $\m$:
+Start with global acquisition data:
+```{figure} ./figures/survey_data.png
+:height: 500px
+:width: 650px
+:name: acquisitiondata
+:alt: pointcloud
+:align: center
 
-$$
-\label{minexpand1}
-\begin{aligned}
-\m = \left( W_d^T \g^T \g W_d + \frac{\mu}{2} \right)^{-1} \left( W_d^T W_d \g \tilde{\d} + \frac{\mu}{2} \tilde{\m} \right)
-\end{aligned}
-$$
+
+Global simulation acquisition data point cloud.
+```
+
+Then sample the injections randomly using Latin Hypercube sampling (LHS) method:
+
+```{figure} ./figures/3d-acquisition_and_sampling-simple.png
+:height: 450px
+:width: 450px
+:name: acquisition
+:alt: injectionmap
+:align: center
+
+
+Example of LHS of acquisition injection locations.
+```
+
+After 15 samples:
+
+```{figure} ./figures/3d-true_model-simple.png
+:height: 300px
+:width: 950px
+:name: truemodel
+:alt: truemodelmap
+:align: center
+
+
+profile view true 3D model.
+```
+
+```{figure} ./figures/3d-probabilistic_model-simple-15samples.png
+:height: 300px
+:width: 950px
+:name: probmodel
+:alt: probmodelmap
+:align: center
+
+
+Bayesian inverse model after 15 samples.
+```
+
+```{figure} ./figures/3d-Tikhonov_model-simple.png
+:height: 300px
+:width: 950px
+:name: Tikhmodel
+:alt: tikhmodelmap
+:align: center
+
+
+Tikhonov inverse model.
+```
