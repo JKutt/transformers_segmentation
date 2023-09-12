@@ -3,7 +3,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import xarray as xr
 import utm
-import numba
 from matplotlib.ticker import (MultipleLocator,
                                FormatStrFormatter,
                                AutoMinorLocator)
@@ -15,15 +14,43 @@ logging.basicConfig(filename='qc.log' , format='%(asctime)s | %(levelname)s: %(m
 fontprops = fm.FontProperties(size=18)
 
 
+def run_line_spacing_qc_mag(
+
+    line_seperation:float = 200,
+    data_by_line: xr.core.groupby.DatasetGroupBy = None,
+    number_of_data_in_file:int = 0,
+    output_file:str = 'mag_default_line_seperation_qc.csv',
+    output_png:bool = False,
+
+)->None:
+    """
+        Method to run quality control item line seperation on an mag data file
+
+        :param line_seperation: the maximum line seperation allowed
+        :type line_seperation: float
+        :param data: mag data file contents
+        :type data: xr.core.groupby.DatasetGroupBy
+        :param number_of_data_in_file: item total in file
+        :type number_of_data_in_file: int
+        :param output_file: output qc file
+        :type output_file: str
+        :param output_png: output qc file
+        :type output_png: bool
+
+    """
+
+
 def run_line_spacing_qc_agg(
     
     line_seperation:float = 200,
     data_by_line: xr.core.groupby.DatasetGroupBy = None,
+    time_constant: float = 0.18
     number_of_data_in_file:int = 0,
-    output_file:str = 'default_line_seperation_qc.csv',
+    output_file:str = 'default_qc',
     output_png:bool = False,
+    instrument_dropout: bool = True
     
-    ) -> None:
+    )->None:
     """
         Method to run quality control item line seperation on an AGG data file
 
@@ -31,10 +58,16 @@ def run_line_spacing_qc_agg(
         :type line_seperation: float
         :param data: AGG data file contents
         :type data: xr.core.groupby.DatasetGroupBy
-        :param number_of_data_in_file: item total in file
+        :param line_seperation: the maximum line seperation allowed
+        :type time_constant: float
+        :param time_constant: the time constant of the demodulation filter
         :type number_of_data_in_file: int
         :param output_file: output qc file
         :type output_file: str
+        :param output_png: output qc file
+        :type output_png: bool
+        :param instrument_dropout: run qc on instrument dropout
+        :type instrument_dropout: bool
     
     """
 
@@ -50,6 +83,9 @@ def run_line_spacing_qc_agg(
     # open file to write csv info
     csv_qc = open(output_file, 'w+')
     csv_qc.write('line_id,easting,northing\n')
+
+    csv_dropout_qc = open(output_file, 'w+')
+    csv_dropout_qc.write('line_id,easting1,northing1,easting2,northing2\n')
 
     # extract line ids
     line_ids = []
@@ -67,6 +103,9 @@ def run_line_spacing_qc_agg(
                     data_by_line[line_ids[ii]].Latitude.to_numpy(),
                     data_by_line[line_ids[ii]].Longitude.to_numpy()
                 )
+
+                # also grab the time
+                difference_between_samples = np.diff(data_by_line[line_ids[ii]].UTC_Time1980)
             
             except utm.error.OutOfRangeError as e:
 
@@ -77,8 +116,11 @@ def run_line_spacing_qc_agg(
 
                 latitude_gaps_removed = data_by_line[line_ids[ii]].Latitude.to_numpy()[~remove_logging_gaps]
                 longitude_gaps_removed = data_by_line[line_ids[ii]].Longitude.to_numpy()[~remove_logging_gaps]
+                time_gaps_removed = data_by_line[line_ids[ii]].UTC_Time1980.to_numpy()[~remove_logging_gaps]
 
                 x, y, zone, letter = utm.from_latlon(latitude_gaps_removed, longitude_gaps_removed)
+
+                difference_between_samples = np.diff(time_gaps_removed)
 
             samples = np.vstack([x, y]).T
 
@@ -165,6 +207,13 @@ def run_line_spacing_qc_agg(
                         except IndexError as e:
 
                             print(e)
+
+            # now do instrument dropout
+            if instrument_dropout:
+
+                
+
+                f.write(f'{line_ids[ii]},{time_excess_points_start[kk, 0]},{time_excess_points_start[kk, 1]},{time_excess_points_end[kk, 0]},{time_excess_points_start[kk, 1]}\n')
         except Exception as e:
             problem_hist['line_error'] += [line_ids[ii]]
             logging.info(f'line: {line_ids[ii]} with error: {e}')
@@ -177,14 +226,63 @@ def run_line_spacing_qc_agg(
 
 if __name__ == '__main__':
 
-    # data file to view
-    agg_data = r"C:\Users\johnk\Documents\projects\kyle\j0002\test_data\2200168_agg_preliminary.csv"
+    if False:
 
-    # load data into panadas then to xarray dataframe
-    data_obj = pd.read_csv(agg_data).to_xarray()
+        # ---------------------------------------------------------------------------------------------
 
-    # group data by lines
-    data_by_line = data_obj.groupby("Line")
+        # AGG data
 
-    # run the data qc
-    run_line_spacing_qc_agg(200, data_by_line, data_obj.dims['index'], output_file='agg_preliminary_line_qc.csv', output_png=True)
+        #
+
+        # data file to view
+        agg_data = r"C:\Users\johnk\Documents\projects\kyle\j0002\test_data\2200168_agg_preliminary.csv"
+        output_filepath = r'agg_preliminary_line_qc.csv'
+
+        # line seperation parameter
+        line_spacing = 200
+
+        # load data into panadas then to xarray dataframe
+        data_obj = pd.read_csv(agg_data).to_xarray()
+
+        # group data by lines
+        data_by_line = data_obj.groupby("Line")
+
+        # run the data qc
+        run_line_spacing_qc_agg(
+            
+            line_seperation=line_spacing,
+            data_by_line=data_by_line,
+            number_of_data_in_file=data_obj.dims['index'],
+            output_file=output_filepath,
+            output_png=True,
+        
+        )
+
+    if True:
+        # ---------------------------------------------------------------------------------------------
+
+        # MAG data
+
+        #
+        mag_data = r"C:\Users\johnk\Documents\projects\kyle\j0002\test_data\2200168_mag_ags_preliminary.csv"
+        output_filepath = r'mag_preliminary_line_qc.csv'
+
+        # line seperation parameter
+        line_spacing = 200
+
+        # load data into panadas then to xarray dataframe
+        data_obj = pd.read_csv(mag_data).to_xarray()
+
+        # group data by lines
+        data_by_line = data_obj.groupby("Line")
+
+        # run the data qc
+        run_line_spacing_qc_agg(
+            
+            line_seperation=line_spacing,
+            data_by_line=data_by_line,
+            number_of_data_in_file=data_obj.dims['index'],
+            output_file=output_filepath,
+            output_png=True,
+        
+        )
