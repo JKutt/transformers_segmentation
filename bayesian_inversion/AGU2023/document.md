@@ -96,6 +96,3 @@ Distribution of trade off parameter $\beta$
 ```
 
 Using the Bayesian inversion approach we can explore a model space for various regularizations comparing the uncertainty quantification between each. In addition, with RTO-TKO we can further probe the regularization choices by analyzing the regularization $\beta$ distribution. These distributions often have large variance and multiple peaks. Exploring the differences in models given different high probability $\beta$'s can give much needed insight into uncertainty in our recovered interfaces for the DC-resistivity and magnetotellurics problems. Both 1-D and 2-D simulations using the RTO method as a base will be generated and compared to traditional geophysical inversion results in order to illustrate the improvement in interpretation. 
-
-
-

@@ -149,3 +149,6 @@ Bayesian inverse model after 15 samples.
 
 Tikhonov inverse model.
 ```
+
+- is anything better than random sampling compared to latin hypercub
+- ask how well we want to fit data.
