@@ -46,7 +46,7 @@ def perform_rto(simulation, mesh, perturbed_model, initial_x ):
         mesh, alpha_s=1e-2, alpha_x=1, reference_model=perturbed_model
     )
     # reg_rto = regularization.Sparse(
-    #     mesh, alpha_s=1, alpha_x=1e-2, reference_model=perturbed_model[:, 0]
+    #     mesh, alpha_s=1, alpha_x=1e-2, reference_model=perturbed_model
     # )
 
     # now determine best beta
@@ -131,17 +131,9 @@ def run():
         np.sum((survey.locations_a - survey.locations_b) ** 2, axis=1)
     )
 
-    # fig = plt.figure(figsize=(11, 5))
-    # mpl.rcParams.update({"font.size": 14})
-    # ax1 = fig.add_axes([0.15, 0.1, 0.7, 0.85])
-    # ax1.semilogy(electrode_separations, dobs, "b")
-    # ax1.set_xlabel("AB/2 (m)")
-    # ax1.set_ylabel(r"Apparent Resistivity ($\Omega m$)")
-    # plt.show()
-
     std = 0.02 * np.abs(dobs)
 
-    data_object = data.Data(survey, dobs=dobs.copy(), standard_deviation=std)
+    # data_object = data.Data(survey, dobs=dobs.copy(), standard_deviation=std)
 
     # Define layer thicknesses
     layer_thicknesses = 5 * np.logspace(0, 1, 25)
@@ -161,88 +153,12 @@ def run():
         thicknesses=layer_thicknesses,
     )
 
-    # # Define the data misfit. Here the data misfit is the L2 norm of the weighted
-    # # residual between the observed data and the data predicted for a given model.
-    # # Within the data misfit, the residual between predicted and observed data are
-    # # normalized by the data's standard deviation.
-    # dmis = data_misfit.L2DataMisfit(simulation=simulation, data=data_object)
+    # -------------------------------------------------------------------------------------------------
 
-    # # Define the regularization (model objective function)
-    # reg = regularization.Sparse(
-    #     mesh, alpha_s=1.0, alpha_x=1.0, reference_model=starting_model
-    # )
+    # rto
 
-    # # Define how the optimization problem is solved. Here we will use an inexact
-    # # Gauss-Newton approach that employs the conjugate gradient solver.
-    # opt = optimization.InexactGaussNewton(maxIter=30, maxIterCG=20)
+    #
 
-    # # Define the inverse problem
-    # inv_prob = inverse_problem.BaseInvProblem(dmis, reg, opt)
-
-    # # Defining a starting value for the trade-off parameter (beta) between the data
-    # # misfit and the regularization.
-    # starting_beta = directives.BetaEstimate_ByEig(beta0_ratio=1e0)
-
-    # # Set the rate of reduction in trade-off parameter (beta) each time the
-    # # the inverse problem is solved. And set the number of Gauss-Newton iterations
-    # # for each trade-off paramter value.
-    # beta_schedule = directives.BetaSchedule(coolingFactor=5.0, coolingRate=3.0)
-
-    # # Apply and update sensitivity weighting as the model updates
-    # update_sensitivity_weights = directives.UpdateSensitivityWeights()
-
-    # # Options for outputting recovered models and predicted data for each beta.
-    # save_iteration = directives.SaveOutputEveryIteration(save_txt=False)
-
-    # # Setting a stopping criteria for the inversion.
-    # target_misfit = directives.TargetMisfit(chifact=1)
-
-    # # The directives are defined as a list.
-    # directives_list = [
-    #     update_sensitivity_weights,
-    #     starting_beta,
-    #     beta_schedule,
-    #     save_iteration,
-    #     target_misfit,
-    # ]
-
-    # # Here we combine the inverse problem and the set of directives
-    # inv = inversion.BaseInversion(inv_prob, directives_list)
-
-    # # Run the inversion
-    # recovered_model_deterministic = inv.run(starting_model)
-
-    # # Define true model and layer thicknesses
-    # true_model = np.r_[1e3, 4e3, 2e2]
-    # true_layers = np.r_[100.0, 100.0]
-
-    # Plot true model and recovered model
-    # fig = plt.figure(figsize=(6, 4))
-    # x_min = np.min([np.min(model_map * recovered_model_deterministic), np.min(true_model)])
-    # x_max = np.max([np.max(model_map * recovered_model_deterministic), np.max(true_model)])
-
-    # ax1 = fig.add_axes([0.2, 0.15, 0.7, 0.7])
-    # plot_1d_layer_model(true_layers, true_model, ax=ax1, plot_elevation=True, color="b")
-    # plot_1d_layer_model(
-    #     layer_thicknesses,
-    #     model_map * recovered_model_deterministic,
-    #     ax=ax1,
-    #     plot_elevation=True,
-    #     color="r",
-    # )
-    # ax1.set_xlabel(r"Resistivity ($\Omega m$)")
-    # ax1.set_xlim(0.9 * x_min, 1.1 * x_max)
-    # ax1.legend(["True Model", "Recovered Model"])
-
-    # Plot the true and apparent resistivities on a sounding curve
-    # fig = plt.figure(figsize=(11, 5))
-    # ax1 = fig.add_axes([0.2, 0.1, 0.6, 0.8])
-    # ax1.semilogy(electrode_separations, dobs, "b")
-    # ax1.semilogy(electrode_separations, inv_prob.dpred, "r")
-    # ax1.set_xlabel("AB/2 (m)")
-    # ax1.set_ylabel(r"Apparent Resistivity ($\Omega m$)")
-    # ax1.legend(["True Sounding Curve", "Predicted Sounding Curve"])
-    # plt.show()
     beta_perturb = 1e4
     # Wm = np.sqrt(beta_perturb) * np.eye(mesh.nC)
 
@@ -293,16 +209,6 @@ def run():
 
     # recovered_model = np.vstack(results).mean(axis=0)
     np.save('rto_models.npy', np.vstack(results))
-
-
-    # plot_1d_layer_model(true_layers, true_model, ax=ax1, plot_elevation=True, color="b")
-    # plot_1d_layer_model(
-    #     layer_thicknesses,
-    #     model_map * recovered_model,
-    #     ax=ax1,
-    #     plot_elevation=True,
-    #     color="r",
-    # )
 
 
 if __name__ == '__main__':
