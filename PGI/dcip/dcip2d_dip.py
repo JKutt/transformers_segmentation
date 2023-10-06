@@ -60,14 +60,16 @@ class plot_mref(directives.InversionDirective):
         # predicted = self.invProb.reg.gmmref.predict(self.opt.xc.reshape(-1, 1))
         fig,ax = plt.subplots(3,1,figsize=(15,5))
         mm = meshCore.plot_image(
-            self.opt.xc, ax=ax[0],
+            1 / np.exp(self.opt.xc), ax=ax[0],
             # clim=[-np.log(250),-np.log(10),],
+            clim=[0,500],
             pcolor_opts={'cmap':'Spectral'}
         )
         # fig,ax = plt.subplots(1,1,figsize=(15,5))
         mm2 = meshCore.plot_image(
-            self.invProb.reg.objfcts[0].mref, ax=ax[1],
+            1 / np.exp(self.invProb.reg.objfcts[0].mref), ax=ax[1],
             # clim=[-np.log(250),-np.log(10),],
+            clim=[0,500],
             pcolor_opts={'cmap':'Spectral'}
         )
         # ax.set_xlim([-750,750])
@@ -81,9 +83,9 @@ class plot_mref(directives.InversionDirective):
         
         #plt.colorbar(mm[0])
         utils.plot2Ddata(
-            meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
+            meshCore.gridCC,1 / np.exp(mtrue[actcore]),nx=500,ny=500,
             contourOpts={'alpha':0},
-            #clim=[0,5],
+            clim=[0,500],
             ax=ax[0],
             level=True,
             ncontour=2,
@@ -91,7 +93,7 @@ class plot_mref(directives.InversionDirective):
             method='nearest'
         )
 
-        ax[2].hist(self.opt.xc, 100)
+        ax[2].hist(1 / np.exp(self.opt.xc), 100)
         # ax[2].set_aspect(1)
 
         # ax[0].set_ylim([-15,0])
@@ -100,7 +102,8 @@ class plot_mref(directives.InversionDirective):
         # ax[1].set_ylim([-15,0])
         # ax[1].set_xlim([-15,15])
         ax[1].set_aspect(1)
-        plt.show()
+        fig.savefig(f'/home/juan/Documents/git/jresearch/PGI/dcip/iterations/{self.start}.png')
+        self.start += 1
 
 # update the neighbors
 class update_segmentation_neighbours(directives.InversionDirective):
@@ -809,13 +812,13 @@ dike = np.logical_and(dike0,dike1)
 model[dike]=4
 
 # plot
-fig,ax = plt.subplots(1,6,figsize=(10,5))
-mm = mesh.plotImage(model, ax=ax, pcolorOpts={'cmap':'viridis'})
+fig,ax = plt.subplots(6, 1,figsize=(5,20))
+mm1 = mesh.plotImage(model, ax=ax[0], pcolorOpts={'cmap':'viridis'})
 
-plt.gca().set_xlim([-1000,1000])
-plt.gca().set_ylim([-250,0])
-plt.gca().set_aspect(2)
-plt.colorbar(mm[0])
+ax[0].set_xlim([-1000,1000])
+ax[0].set_ylim([-250,0])
+# ax[0].set_aspect(2)
+# plt.colorbar(mm1[0])
 
 
 # define conductivities
@@ -856,8 +859,8 @@ utils.plot2Ddata(
     
 )
 #plt.gca().set_ylim([-200,0])
-plt.gca().set_aspect(1)
-plt.colorbar(mm[0])
+ax[0].set_aspect(1)
+# plt.colorbar(mm[0])
 
 
 xmin, xmax = -350., 350.
@@ -946,7 +949,7 @@ gmmref = GaussianMixtureSam(
     mesh=meshCore,
     kneighbors=24,
     covariance_type='full',
-    segmentation_model_checkpoint=r"C:\Users\johnk\Documents\git\jresearch\PGI\dcip\sam_vit_h_4b8939.pth"
+    segmentation_model_checkpoint='/home/juan/Documents/git/jresearch/PGI/dcip/sam_vit_h_4b8939.pth'
 )
 gmmref.fit(mtrue[actcore].reshape(-1, 1))
 
@@ -965,6 +968,14 @@ gmmref.covariances_ = np.array([[[0.001]],
                              [[0.001]]])
 ##Set clusters precision and Cholesky decomposition from variances
 gmmref.compute_clusters_precisions()
+
+# gmmref.plot_pdf(ax[3])
+# ax[2].set_aspect(1)
+# ax[3].set_aspect(1)
+# ax[4].set_aspect(1)
+# ax[5].set_aspect(1)
+
+fig.savefig('/home/juan/Documents/git/jresearch/PGI/dcip/prep.png')
 
 
 # --------------------------------------------------------------------------
@@ -988,7 +999,7 @@ reg_mean = regularization.PGI(
 )
 
 # Weighting
-reg_mean.alpha_s = 1
+reg_mean.alpha_s = 0.001
 reg_mean.alpha_x = 10
 reg_mean.alpha_y = 10
 # reg_mean.mrefInSmooth = True
@@ -996,7 +1007,7 @@ reg_mean.alpha_y = 10
 
 
 # Optimization
-opt = optimization.ProjectedGNCG(maxIter=4, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
+opt = optimization.ProjectedGNCG(maxIter=8, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
 opt.remember('xc')
 
 # Set the inverse problem
@@ -1021,7 +1032,7 @@ petrodir = PGIUpdateParameters(
     update_rate = 2,
     update_reference_model=False
     )
-update_sam = update_segmentation_neighbours()
+# update_sam = update_segmentation_neighbours()
 plot_iter_mref = plot_mref()
 updateSensW = directives.UpdateSensitivityWeights(threshold=5e-1, everyIter=False)
 update_Jacobi = directives.UpdatePreconditioner()
@@ -1029,13 +1040,13 @@ save_pgi = SavePGIOutput('./pgi_param')
 invProb.beta = 1e-2
 inv = inversion.BaseInversion(invProb,
                               directiveList=[
-                                            #  updateSensW,
-                                             update_sam,
-                                             petrodir,
+                                             updateSensW,
+                                            #  update_sam,
+                                            #  petrodir,
                                              targets, betaIt,
                                             #  MrefInSmooth,
                                              plot_iter_mref,
-                                             save_pgi,
+                                            #  save_pgi,
                                             #  update_Jacobi,
                                              ])
 
