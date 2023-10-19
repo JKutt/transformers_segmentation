@@ -50,6 +50,8 @@ from SimPEG.regularization import (
 
 #plot learned mref
 class plot_mref(directives.InversionDirective):
+
+    mesh = None
     
     def initialize(self):
         self.start = 0
@@ -57,6 +59,7 @@ class plot_mref(directives.InversionDirective):
     
     def endIter(self):
         # plot
+        meshCore = self.mesh
         # predicted = self.invProb.reg.gmmref.predict(self.opt.xc.reshape(-1, 1))
         fig,ax = plt.subplots(3,1,figsize=(15,5))
         mm = meshCore.plot_image(
@@ -82,16 +85,16 @@ class plot_mref(directives.InversionDirective):
         # )
         
         #plt.colorbar(mm[0])
-        utils.plot2Ddata(
-            meshCore.gridCC,1 / np.exp(mtrue[actcore]),nx=500,ny=500,
-            contourOpts={'alpha':0},
-            clim=[0,500],
-            ax=ax[0],
-            level=True,
-            ncontour=2,
-            levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
-            method='nearest'
-        )
+        # utils.plot2Ddata(
+        #     meshCore.gridCC,1 / np.exp(mtrue[actcore]),nx=500,ny=500,
+        #     contourOpts={'alpha':0},
+        #     clim=[0,500],
+        #     ax=ax[0],
+        #     level=True,
+        #     ncontour=2,
+        #     levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
+        #     method='nearest'
+        # )
 
         ax[2].hist(1 / np.exp(self.opt.xc), 100)
         # ax[2].set_aspect(1)
@@ -102,7 +105,7 @@ class plot_mref(directives.InversionDirective):
         # ax[1].set_ylim([-15,0])
         # ax[1].set_xlim([-15,15])
         ax[1].set_aspect(1)
-        fig.savefig(f'/home/juan/Documents/git/jresearch/PGI/dcip/iterations/{self.start}.png')
+        fig.savefig(f'./iterations/{self.start}.png')
         self.start += 1
 
 # update the neighbors
@@ -772,286 +775,377 @@ class GaussianMixtureSam(utils.WeightedGaussianMixture):
         return geological_model
 
 
-# -------------------------------------------------------------------------------------------------
+def run():
+    # -------------------------------------------------------------------------------------------------
 
-# create a 2d mesh for a dc simulation
+    # create a 2d mesh for a dc simulation
 
-#
+    #
 
-#2D mesh
-csx,  csy,  csz = 5.,  5.,  5.
-# Number of core cells in each direction
-ncx,  ncz = 163,  61
-# Number of padding cells to add in each direction
-npad = 12
-# Vectors of cell lengthts in each direction
-hx = [(csx, npad,  -1.5), (csx, ncx), (csx, npad,  1.5)]
-hz = [(csz, npad, -1.5), (csz, ncz)]
-# Create mesh
-mesh = discretize.TensorMesh([hx,  hz], x0="CN")
-mesh.x0[1] = mesh.x0[1] + csz / 2.
+    #2D mesh
+    csx,  csy,  csz = 5.,  5.,  5.
+    # Number of core cells in each direction
+    ncx,  ncz = 163,  61
+    # Number of padding cells to add in each direction
+    npad = 12
+    # Vectors of cell lengthts in each direction
+    hx = [(csx, npad,  -1.5), (csx, ncx), (csx, npad,  1.5)]
+    hz = [(csz, npad, -1.5), (csz, ncz)]
+    # Create mesh
+    mesh = discretize.TensorMesh([hx,  hz], x0="CN")
+    mesh.x0[1] = mesh.x0[1] + csz / 2.
 
-print(mesh)
+    print(mesh)
 
-# -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
 
-# create a synthetic model for a dc simulation
+    # create a synthetic model for a dc simulation
 
-#
+    #
 
-model = 3 * np.ones(mesh.nC, dtype='int64')
+    model = 3 * np.ones(mesh.nC, dtype='int64')
 
-# divide domain by  45* fault at 100 m
-fault_function = lambda x, slope, shift: slope * x + shift
+    # divide domain by  45* fault at 100 m
+    fault_function = lambda x, slope, shift: slope * x + shift
 
-# Dike 45*
-dike0 = mesh.gridCC[:,1] > fault_function(mesh.gridCC[:,0],1, 100)
-dike1 = mesh.gridCC[:,1] < fault_function(mesh.gridCC[:,0],1, 175)
-dike = np.logical_and(dike0,dike1)
+    # Dike 45*
+    dike0 = mesh.gridCC[:,1] > fault_function(mesh.gridCC[:,0],1, 100)
+    dike1 = mesh.gridCC[:,1] < fault_function(mesh.gridCC[:,0],1, 175)
+    dike = np.logical_and(dike0,dike1)
 
-model[dike]=4
+    model[dike]=4
 
-# plot
-fig,ax = plt.subplots(6, 1,figsize=(5,20))
-mm1 = mesh.plotImage(model, ax=ax[0], pcolorOpts={'cmap':'viridis'})
+    # plot
+    fig,ax = plt.subplots(3, 1,figsize=(10,20))
+    mm1 = mesh.plotImage(model, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
 
-ax[0].set_xlim([-1000,1000])
-ax[0].set_ylim([-250,0])
-# ax[0].set_aspect(2)
-# plt.colorbar(mm1[0])
-
-
-# define conductivities
-res_true = np.ones(mesh.nC)
-res_true[model==3]= 500
-res_true[model==4]= 10
-
-cond_true = 1./res_true
-
-mtrue = np.log(cond_true)
-
-xmin, xmax = -400., 400.
-ymin, ymax = -300., 0.
-zmin, zmax = 0, 0
-xyzlim = np.r_[[[xmin, xmax], [ymin, ymax]]]
-actcore,  meshCore = utils.mesh_utils.ExtractCoreMesh(xyzlim, mesh)
-actind = np.ones_like(actcore)
-
-# plot
-mm = meshCore.plotImage(
-    
-    1/(cond_true)[actcore],
-    ax=ax[0],
-    pcolorOpts={'cmap':'viridis'}
-
-)
-
-utils.plot2Ddata(
-
-    meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
-    contourOpts={'alpha':0},
-    #clim=[0,5],
-    ax=ax[1],
-    level=True,
-    ncontour=2,
-    levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
-    method='nearest'
-    
-)
-#plt.gca().set_ylim([-200,0])
-ax[0].set_aspect(1)
-# plt.colorbar(mm[0])
+    ax[0].set_xlim([-1000,1000])
+    ax[0].set_ylim([-250,0])
+    # ax[0].set_aspect(2)
+    # plt.colorbar(mm1[0])
 
 
-xmin, xmax = -350., 350.
-ymin, ymax = 0., 0.
-zmin, zmax = 0, 0
+    # define conductivities
+    res_true = np.ones(mesh.nC)
+    res_true[model==3]= 500
+    res_true[model==4]= 10
 
-endl = np.array([[xmin, ymin, zmin], [xmax, ymax, zmax]])
-srclist = []
+    cond_true = 1./res_true
 
-for dipole in np.linspace(25,250,10):
-    
-    survey1 = dcutils.generate_dcip_survey(
+    mtrue = np.log(cond_true)
+
+    xmin, xmax = -400., 400.
+    ymin, ymax = -300., 0.
+    zmin, zmax = 0, 0
+    xyzlim = np.r_[[[xmin, xmax], [ymin, ymax]]]
+    actcore,  meshCore = utils.mesh_utils.ExtractCoreMesh(xyzlim, mesh)
+    actind = np.ones_like(actcore)
+
+    # plot
+    mm = meshCore.plot_image(
         
-        endl, survey_type="dipole-dipole",
-        dim=mesh.dim,
-        a=dipole,
-        b=dipole,
-        n=16,
-    
+        1/(cond_true)[actcore],
+        ax=ax[0],
+        pcolorOpts={'cmap':'Spectral_r'}
+
     )
-    
-    srclist +=(survey1.source_list)
 
-survey = dc.Survey(srclist)
+    utils.plot2Ddata(
 
-# Setup Problem with exponential mapping and Active cells only in the core mesh
-expmap = maps.ExpMap(mesh)
-mapactive = maps.InjectActiveCells(
-    
-    mesh=mesh,
-    indActive=actcore,
-    valInactive=-np.log(100)
-
-)
-mapping = expmap * mapactive
-simulation = dc.Simulation2DNodal(
-    
-    mesh, 
-    survey=survey, 
-    sigmaMap=mapping,
-    solver=Solver,
-    nky=8
-
-)
-
-# -----------------------------------------------------------------------
-
-# create synthetic data and view psuedo-section
-
-#
-
-relative_measurement_error = 0.05
-dc_data = simulation.make_synthetic_data(
-    
-    mtrue[actcore],
-    relative_error=relative_measurement_error,
-    noise_floor=1e-4,
-    force=True,
-    add_noise=True,
-
-)
-
-relative_error_list = (np.abs(dc_data.standard_deviation/dc_data.dobs))
-print(relative_error_list.min())
-print(relative_error_list.max())
-print(np.median(relative_error_list))
-print(relative_error_list.mean())
-ax[2].hist(np.log10(relative_error_list), 50)
-# plt.show()
-
-
-
-m0 = np.log(1/500) * np.ones(mapping.nP)
-
-
-# ----------------------------------------------------------------------------------------------------
-
-# setup the GMM + SAM segmentation
-
-#
-
-n = 2
-
-gmmref = GaussianMixtureSam(
-    n_components=n, 
-    mesh=meshCore,
-    kneighbors=24,
-    covariance_type='full',
-    segmentation_model_checkpoint='/home/juan/Documents/git/jresearch/PGI/dcip/sam_vit_h_4b8939.pth'
-)
-gmmref.fit(mtrue[actcore].reshape(-1, 1))
-
-# Manually setting the GMM parameters
-## Order cluster by order of importance
-
-# Set cluster 
-# res_true[model==1]= 50
-# res_true[model==2]= 250
-# res_true[model==3]= 100
-# res_true[model==4]= 10
-
-gmmref.means_ = np.r_[-np.log(10.), -np.log(500.)][:,np.newaxis]
-
-gmmref.covariances_ = np.array([[[0.001]],
-                             [[0.001]]])
-##Set clusters precision and Cholesky decomposition from variances
-gmmref.compute_clusters_precisions()
-
-# gmmref.plot_pdf(ax[3])
-# ax[2].set_aspect(1)
-# ax[3].set_aspect(1)
-# ax[4].set_aspect(1)
-# ax[5].set_aspect(1)
-
-fig.savefig('/home/juan/Documents/git/jresearch/PGI/dcip/prep.png')
-
-
-# --------------------------------------------------------------------------
-
-# setup the inversion
-
-#
-
-dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
-# Create the regularization with GMM information
-idenMap = maps.IdentityMap(nP=m0.shape[0])
-wires = maps.Wires(('m', m0.shape[0]))
-reg_mean = regularization.PGI(
-    gmm=gmmref,
-    gmmref=gmmref, 
-    mesh=mesh,
-    wiresmap=wires,
-    maplist=[idenMap],
-    reference_model=m0,
-    indActive=actcore
-)
-
-# Weighting
-reg_mean.alpha_s = 0.001
-reg_mean.alpha_x = 10
-reg_mean.alpha_y = 10
-# reg_mean.mrefInSmooth = True
-# reg_mean.approx_gradient = True
-
-
-# Optimization
-opt = optimization.ProjectedGNCG(maxIter=8, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
-opt.remember('xc')
-
-# Set the inverse problem
-invProb = inverse_problem.BaseInvProblem(dmis,  reg_mean,  opt)
-
-# Inversion directives
-betaIt = directives.PGI_BetaAlphaSchedule(
-    verbose=True, coolingFactor=5.,
-    warmingFactor=1., tolerance=0.05,
-    progress=0.1
-)
-targets = directives.MultiTargetMisfits(
-    TriggerSmall=True,
-    TriggerTheta=False,
-    verbose=True,
-)
-MrefInSmooth = directives.PGI_AddMrefInSmooth(verbose=True,  wait_till_stable=True, tolerance=0.0)
-petrodir = PGIUpdateParameters(
-    update_covariances=True,
-    kappa = 1e8,
-    nu = 1e8,
-    update_rate = 2,
-    update_reference_model=False
+        meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
+        contourOpts={'alpha':0},
+        #clim=[0,5],
+        ax=ax[0],
+        level=True,
+        ncontour=2,
+        levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
+        method='nearest'
+        
     )
-# update_sam = update_segmentation_neighbours()
-plot_iter_mref = plot_mref()
-updateSensW = directives.UpdateSensitivityWeights(threshold=5e-1, everyIter=False)
-update_Jacobi = directives.UpdatePreconditioner()
-save_pgi = SavePGIOutput('./pgi_param')
-invProb.beta = 1e-2
-inv = inversion.BaseInversion(invProb,
-                              directiveList=[
-                                             updateSensW,
-                                            #  update_sam,
-                                            #  petrodir,
-                                             targets, betaIt,
-                                            #  MrefInSmooth,
-                                             plot_iter_mref,
-                                            #  save_pgi,
-                                            #  update_Jacobi,
-                                             ])
+    #plt.gca().set_ylim([-200,0])
+    ax[0].set_aspect(1)
+    plt.colorbar(mm[0], label=r'$\Omega$ m')
+    ax[0].set_title('True model')
 
-# Run!
-mcluster = inv.run(m0)
+    xmin, xmax = -350., 350.
+    ymin, ymax = 0., 0.
+    zmin, zmax = 0, 0
+
+    endl = np.array([[xmin, ymin, zmin], [xmax, ymax, zmax]])
+    srclist = []
+
+    for dipole in np.linspace(25,250,10):
+        
+        survey1 = dcutils.generate_dcip_survey(
+            
+            endl, survey_type="pole-dipole",
+            dim=mesh.dim,
+            a=dipole,
+            b=dipole,
+            n=16,
+        
+        )
+
+        # print(dipole)
+
+        survey2 = dcutils.generate_dcip_survey(
+            
+            endl, survey_type="dipole-pole",
+            dim=mesh.dim,
+            a=dipole,
+            b=dipole,
+            n=16,
+        
+        )
+        
+        srclist +=(survey1.source_list)
+        srclist +=(survey2.source_list)
+
+    survey = dc.Survey(srclist)
+
+    # Setup Problem with exponential mapping and Active cells only in the core mesh
+    expmap = maps.ExpMap(mesh)
+    mapactive = maps.InjectActiveCells(
+        
+        mesh=mesh,
+        indActive=actcore,
+        valInactive=-np.log(100)
+
+    )
+    mapping = expmap * mapactive
+    simulation = dc.Simulation2DNodal(
+        
+        mesh, 
+        survey=survey, 
+        sigmaMap=mapping,
+        solver=Solver,
+        nky=8
+
+    )
+
+    # -----------------------------------------------------------------------
+
+    # create synthetic data and view psuedo-section
+
+    #
+
+    relative_measurement_error = 0.05
+    dc_data = simulation.make_synthetic_data(
+        
+        mtrue[actcore],
+        relative_error=relative_measurement_error,
+        noise_floor=1e-4,
+        force=True,
+        add_noise=True,
+
+    )
+
+    relative_error_list = (np.abs(dc_data.standard_deviation/dc_data.dobs))
+    print(relative_error_list.min())
+    print(relative_error_list.max())
+    print(np.median(relative_error_list))
+    print(relative_error_list.mean())
+    ax[1].hist(relative_error_list, 50)
+    ax[1].set_title(r'Relative Error ($\frac{\sigma^{2}}{d_{obs}}$)')
+    # plt.show()
 
 
 
+    m0 = np.log(1/500) * np.ones(mapping.nP)
+
+
+    # ----------------------------------------------------------------------------------------------------
+
+    # setup the GMM + SAM segmentation
+
+    #
+
+    # n = 2
+
+    # gmmref = GaussianMixtureSam(
+    #     n_components=n, 
+    #     mesh=meshCore,
+    #     kneighbors=24,
+    #     covariance_type='full',
+    #     segmentation_model_checkpoint='/home/juan/Documents/git/jresearch/PGI/dcip/sam_vit_h_4b8939.pth'
+    # )
+    # gmmref.fit(mtrue[actcore].reshape(-1, 1))
+
+    # # Manually setting the GMM parameters
+    # ## Order cluster by order of importance
+
+    # # Set cluster 
+    # # res_true[model==1]= 50
+    # # res_true[model==2]= 250
+    # # res_true[model==3]= 100
+    # # res_true[model==4]= 10
+
+    # gmmref.means_ = np.r_[-np.log(10.), -np.log(500.)][:,np.newaxis]
+
+    # gmmref.covariances_ = np.array([[[0.001]],
+    #                             [[0.001]]])
+    # ##Set clusters precision and Cholesky decomposition from variances
+    # gmmref.compute_clusters_precisions()
+
+    # gmmref.plot_pdf(ax[3])
+    # ax[2].set_aspect(1)
+    # ax[3].set_aspect(1)
+    # ax[4].set_aspect(1)
+    # ax[5].set_aspect(1)
+
+    plt.subplots_adjust( 
+                    wspace=0.4, 
+                    hspace=0.4)
+    
+
+    # --------------------------------------------------------------------------
+
+    # setup the inversion
+
+    #
+
+    dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
+    # Create the regularization with GMM information
+    idenMap = maps.IdentityMap(nP=m0.shape[0])
+    wires = maps.Wires(('m', m0.shape[0]))
+    # set the regularization
+    alphas = np.ones((meshCore.n_cells, meshCore.dim))
+    # alphas[meshCore.cell_centers[:, 1] < 0.5] = [2, 1]
+    sqrt2 = np.sqrt(2)
+    # reg_dirs = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
+
+    # lets just assign them to the dip structure
+    reg_cell_dirs = [np.identity(2) for _ in range(meshCore.nC)]
+
+    # lets expand the area we want to
+    # Dike 45*
+    dike00 = mesh.gridCC[:,1] > fault_function(mesh.gridCC[:,0],1, 50)
+    dike01 = mesh.gridCC[:,1] < fault_function(mesh.gridCC[:,0],1, 255)
+    dike_dir_reg = np.logical_and(dike00,dike01)
+
+    # reg model
+    reg_model = model.copy()
+    
+    reg_model[dike_dir_reg]=4
+
+    for ii in range(meshCore.nC):
+
+        if reg_model[actcore][ii] == 4:
+
+            reg_cell_dirs[ii] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
+
+    # reg_cell_dirs[dike] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
+
+    # reg_mean = regularization.SmoothnessFullGradient(
+    #     meshCore, 
+    #     reg_dirs=reg_cell_dirs,
+    #     ortho_check=False,
+    # )
+    # reg_mean = regularization.PGI(
+    #     gmm=gmmref,
+    #     gmmref=gmmref, 
+    #     mesh=mesh,
+    #     wiresmap=wires,
+    #     maplist=[idenMap],
+    #     reference_model=m0,
+    #     indActive=actcore
+    # )
+
+    # Weighting
+    reg_mean = regularization.WeightedLeastSquares(
+        mesh, 
+        active_cells=actcore,
+        mapping=idenMap,
+        # reference_model=m0
+    )
+    reg_mean.alpha_s = 0.01
+    reg_mean.alpha_x = 100
+    reg_mean.alpha_y = 100
+    # reg_mean.mrefInSmooth = True
+    # reg_mean.approx_gradient = True
+
+
+    # Optimization
+    opt = optimization.ProjectedGNCG(maxIter=10, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
+    opt.remember('xc')
+
+    # Set the inverse problem
+    invProb = inverse_problem.BaseInvProblem(dmis,  reg_mean,  opt)
+
+    # Inversion directives
+    betaIt = directives.PGI_BetaAlphaSchedule(
+        verbose=True, coolingFactor=5.,
+        warmingFactor=1., tolerance=0.05,
+        progress=0.1
+    )
+    targets = directives.MultiTargetMisfits(
+        TriggerSmall=True,
+        TriggerTheta=False,
+        verbose=True,
+    )
+    MrefInSmooth = directives.PGI_AddMrefInSmooth(verbose=True,  wait_till_stable=True, tolerance=0.0)
+    petrodir = PGIUpdateParameters(
+        update_covariances=True,
+        kappa = 1e8,
+        nu = 1e8,
+        update_rate = 2,
+        update_reference_model=False
+        )
+    # update_sam = update_segmentation_neighbours()
+    plot_iter_mref = plot_mref()
+    plot_iter_mref.mesh = meshCore
+    updateSensW = directives.UpdateSensitivityWeights(threshold=5e-1, everyIter=False)
+    update_Jacobi = directives.UpdatePreconditioner()
+    save_pgi = SavePGIOutput('./pgi_param')
+    invProb.beta = 1e-2
+    inv = inversion.BaseInversion(invProb,
+                                directiveList=[
+                                                # updateSensW,
+                                                #  update_sam,
+                                                #  petrodir,
+                                                targets, betaIt,
+                                                #  MrefInSmooth,
+                                                plot_iter_mref,
+                                                #  save_pgi,
+                                                #  update_Jacobi,
+                                                ])
+
+    # Run!
+    mcluster = inv.run(m0)
+
+    # np.save("rotated_model.npy", mcluster)
+    # mcluster = np.load("rotated_model.npy")
+
+    # plot
+    mm = meshCore.plot_image(
+        
+        1/(np.exp(mcluster)),
+        ax=ax[2],
+        clim=[0, 500],
+        pcolorOpts={'cmap':'Spectral_r'}
+
+    )
+
+    utils.plot2Ddata(
+
+        meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
+        contourOpts={'alpha':0},
+        #clim=[0,5],
+        ax=ax[2],
+        level=True,
+        ncontour=2,
+        levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
+        method='nearest'
+        
+    )
+    #plt.gca().set_ylim([-200,0])
+    ax[2].set_aspect(1)
+    plt.colorbar(mm[0], label=r'$\Omega$ m')
+    ax[2].set_title('Rotated gradient recovered model')
+
+    fig.savefig('./prep_tikh_pddp.png')
+
+
+if __name__ == '__main__':
+
+    run()

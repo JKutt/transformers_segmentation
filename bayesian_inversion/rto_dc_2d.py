@@ -32,7 +32,7 @@ def perform_rto(simulation, mesh, perturbed_model, initial_x ):
     # residual between the observed data and the data predicted for a given model.
     # Within the data misfit, the residual between predicted and observed data are
     # normalized by the data's standard deviation.
-    dmis_rto = data_misfit.L2DataMisfit(simulation=simulation, data=data_object)
+    dmis_rto = data_misfit.L1DataMisfit(simulation=simulation, data=data_object)
 
     # Define the regularization (model objective function)
     reg_rto = regularization.WeightedLeastSquares(
@@ -249,7 +249,7 @@ def run():
     #     results[ii] = rto_tasks[ii].get()
 
     # recovered_model = np.vstack(results).mean(axis=0)
-    np.save(r'C:\Users\johnk\Documents\git\jresearch\rto_models_2d.npy', np.vstack(rto_tasks))
+    np.save(r'C:\Users\johnk\Documents\git\jresearch\rto_models_2d_l1.npy', np.vstack(rto_tasks))
 
 
 if __name__ == '__main__':
