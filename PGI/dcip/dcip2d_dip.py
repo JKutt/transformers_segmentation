@@ -1066,7 +1066,7 @@ def run():
 
 
     # Optimization
-    opt = optimization.ProjectedGNCG(maxIter=10, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
+    opt = optimization.ProjectedGNCG(maxIter=3, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
     opt.remember('xc')
 
     # Set the inverse problem
@@ -1113,7 +1113,7 @@ def run():
     # Run!
     mcluster = inv.run(m0)
 
-    # np.save("rotated_model.npy", mcluster)
+    np.save("tik_model.npy", mcluster)
     # mcluster = np.load("rotated_model.npy")
 
     # plot
