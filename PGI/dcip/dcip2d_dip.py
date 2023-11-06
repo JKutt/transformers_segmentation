@@ -106,6 +106,7 @@ class plot_mref(directives.InversionDirective):
         # ax[1].set_xlim([-15,15])
         ax[1].set_aspect(1)
         fig.savefig(f'./iterations/{self.start}.png')
+        np.save(f'./iterations/model_{self.start}.npy', self.opt.xc)
         self.start += 1
 
 # update the neighbors
@@ -1066,7 +1067,7 @@ def run():
 
 
     # Optimization
-    opt = optimization.ProjectedGNCG(maxIter=3, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
+    opt = optimization.ProjectedGNCG(maxIter=8, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
     opt.remember('xc')
 
     # Set the inverse problem
