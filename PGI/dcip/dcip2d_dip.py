@@ -23,6 +23,8 @@ from scipy.special import logsumexp
 from sklearn.mixture._gaussian_mixture import (
     _compute_precision_cholesky,
 )
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 import datetime
 import warnings
 
@@ -776,6 +778,224 @@ class GaussianMixtureSam(utils.WeightedGaussianMixture):
         return geological_model
 
 
+class SamClassificationModel():
+
+    def __init__(
+        self,
+        mesh,
+        kneighbors: int=20,
+        segmentation_model_checkpoint: str=r"C:\Users\johnk\Documents\git\jresearch\PGI\dcip\sam_vit_h_4b8939.pth",
+    ):
+        
+        self.segmentation_model_checkpoint = segmentation_model_checkpoint
+        self.mesh = mesh
+        self.kneighbors = kneighbors
+        self.indexpoint = np.zeros((mesh.nC, kneighbors + 1))
+
+        # load segmentation network model
+        sam = sam_model_registry["vit_h"](checkpoint=self.segmentation_model_checkpoint)
+        # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # sam.to(device=device)
+        self.mask_generator = SamAutomaticMaskGenerator(sam)
+
+    def fit(self, model:np.ndarray=None, ) -> dict:
+
+        if model is None:
+
+            raise ValueError('need a model')
+        
+        else:
+
+            model_normalized = np.exp(model) / np.abs(np.exp(model)).max()
+
+            image_rgb = Image.fromarray(np.uint8(cm.jet(model_normalized.reshape(self.mesh.shape_cells, order='F'))*255))
+            image_rgb = image_rgb.convert('RGB')
+
+            result = self.mask_generator.generate(np.asarray(image_rgb))
+
+
+            # ---------------------------------------------------------------------------------------------
+
+            # create a matrix that holds information about overlapping mask if they happen to
+
+            # this is done using intersection over union method
+
+            #
+
+            nlayers = len(result)
+
+            union_matrix = np.zeros((nlayers, nlayers))
+            for ii in range(nlayers):
+                for jj in range(nlayers):
+                    iou_score = calculate_iou(result[ii]['segmentation'], result[jj]['segmentation'])
+                    union_matrix[ii, jj] = iou_score
+                    print("IoU score:", iou_score)
+
+            # ------------------------------------------------------------------------------------
+
+            # modify the overlap matrix to assign the proper neighbors mask in the case of onions
+
+            #
+
+            sub_union_matrix = union_matrix[1:, 1:].copy()
+
+            # calculate how many non zero in a row of our overlap matrix
+            for jj in range(sub_union_matrix.shape[0]):
+
+                if np.count_nonzero(sub_union_matrix[jj, :]) > 1:
+
+                    mask_index = np.nonzero(sub_union_matrix[jj, :])
+                    print(mask_index[0][-1])
+                    # check which mask is larger
+                    sub_union_matrix[jj, mask_index[0][-1]] = 1
+                    sub_union_matrix[jj, mask_index[0][0]] = 0
+
+            # --------------------------------------------------------------------------------------
+
+            # assign each cell a mask to assign it's neighbors
+
+            #
+
+            hx, hy = self.mesh.shape_cells
+            x = np.arange(hx)
+            y = np.arange(hy)
+            xx, yy = np.meshgrid(x, y)
+
+            mask_locations = np.vstack([xx.flatten(), yy.flatten()])
+
+            mask_assignment = np.zeros(mask_locations.shape[1])
+
+            for ii in range(mask_locations.shape[1]):
+
+                for jj in range(nlayers - 1):
+
+                    idx = np.vstack(np.where(result[jj + 1]['segmentation'] == True))
+
+                    point_set = idx.T
+
+                    # print(point_set.shape, np.vstack(idx).shape, xx.shape)
+                    distances = np.sqrt(np.sum((point_set - mask_locations[:, ii].T)**2, axis=1))
+                    # print(jj, mask_assignment[:, ii].T, point_set[0, :])
+                    min_distance = np.min(distances)
+                    
+                    if min_distance == 0:
+                        mask_assignment[ii] = jj + 1
+
+            # ----------------------------------------------------------------------------------------
+
+            # now update the indexpoint matrix
+
+            #
+
+            for kk in range(mask_assignment.shape[0]):
+
+                # check union matrix for the correct mask
+                union_index = int(mask_assignment[kk] - 1)
+                print(union_index, sub_union_matrix.shape)
+                if union_index < 0:
+
+                    pass
+
+                else:
+                    print(sub_union_matrix[union_index, :])
+                    mask_select = np.nonzero(sub_union_matrix[union_index, :])[0][0]
+
+                    idx = np.vstack(np.where(result[mask_select]['segmentation'].flatten(order='F') == True))[0]
+                    shape_idx = idx.shape[0]
+
+                    # if the mask is smaller than the user defined number of neighbors
+                    if idx.shape[0] < (self.kneighbors + 1):
+
+                        self.indexpoint[kk, :] = self.indexpoint[kk, 0]
+                        self.indexpoint[kk, -shape_idx:] = idx
+
+                    # otherwise assign the entire mask
+                    else:
+
+                        print(f"idx shape: {idx.shape} knei: {self.kneighbors} {shape_idx} {self.indexpoint.shape} {kk}")
+                        print(idx[:(self.kneighbors + 1)].shape, mask_locations.shape, mask_assignment.shape)
+                        self.indexpoint[kk, :] = idx[:(self.kneighbors + 1)]
+
+            self.masks = result
+
+    def predict(
+
+            self, 
+            model:np.ndarray,
+            # gmm:utils.WeightedGaussianMixture
+
+    ) -> np.ndarray:
+
+        # output quasi-geological model
+        geological_model = np.zeros(model.shape, dtype=int)
+        print('in predict!')
+        # loop through and take mean value of the assigned 
+        for ii in range(model.shape[0]):
+
+            value = model[self.indexpoint[ii, :]].mean()
+            # idx = (np.abs(gmm._means - value)).argmin()
+            geological_model[ii] = value # idx  # self.means_[idx]
+            # print(f"assigning value: {geological_model[ii]}")
+
+        return geological_model
+
+
+class GeologicalSegmentation(regularization.SmoothnessFullGradient):
+
+    def __init__(
+            self, 
+            mesh: discretize.TensorMesh, 
+            alphas: np.ndarray=None, 
+            reg_dirs: np.ndarray=None, 
+            ortho_check: bool=True,
+            segmentation_model: SamClassificationModel=None,
+            **kwargs
+    ):
+        super.__init__(
+            mesh, 
+            alphas=alphas, 
+            reg_dirs=reg_dirs, 
+            ortho_check=ortho_check, 
+            **kwargs)
+
+        self.mask_assignment = None
+        self.segmentation_model = segmentation_model
+
+    def update_gradients(self, xc):
+
+        masks = self.segmentation_model.fit(xc)
+
+        # loop through masks and assign rotations
+        for ii in range(2, len(masks)):
+            mask_data = masks[ii]['segmentation']
+            mask_data = np.flip(mask_data)
+            # Find the coordinates of the object pixels
+            object_pixels = np.argwhere(mask_data == 1)
+
+            # Apply PPCA to determine orientation
+            if len(object_pixels) > 1:
+                # Standardize the data
+                scaler = StandardScaler()
+                object_pixels_std = scaler.fit_transform(object_pixels)
+
+                # Apply PPCA
+                pca = PCA(n_components=2)
+                pca.fit(object_pixels_std)
+
+                # The first principal component (eigenvector) will represent the orientation
+                orientation_vector = pca.components_[0]
+
+                # Compute the angle of the orientation vector (in degrees)
+                angle_degrees = np.arctan2(orientation_vector[1], orientation_vector[0]) * 180 / np.pi
+
+                print(f"Orientation angle (degrees): {angle_degrees}")
+                sqrt2 = np.sqrt(2)
+
+                self.reg_dirs = [np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])] * self.mesh.nC
+            else:
+                raise ValueError("Not enough object pixels to determine orientation.")
+
+
 def run():
     # -------------------------------------------------------------------------------------------------
 
@@ -1025,23 +1245,28 @@ def run():
     dike_dir_reg = np.logical_and(dike00,dike01)
 
     # reg model
-    reg_model = model.copy()
+    # reg_model = model.copy()
     
-    reg_model[dike_dir_reg]=4
+    # reg_model[dike_dir_reg]=4
 
-    for ii in range(meshCore.nC):
+    # for ii in range(meshCore.nC):
 
-        if reg_model[actcore][ii] == 4:
+    #     if reg_model[actcore][ii] == 4:
 
-            reg_cell_dirs[ii] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
+    #         reg_cell_dirs[ii] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
 
     # reg_cell_dirs[dike] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
+    segmentor = SamClassificationModel(
+        mesh,
+        segmentation_model_checkpoint=r"/home/juan/Documents/git/jresearch/PGI/dcip/sam_vit_h_4b8939.pth"
+    )
 
-    # reg_mean = regularization.SmoothnessFullGradient(
-    #     meshCore, 
-    #     reg_dirs=reg_cell_dirs,
-    #     ortho_check=False,
-    # )
+    reg_mean = GeologicalSegmentation(
+        meshCore, 
+        reg_dirs=reg_cell_dirs,
+        ortho_check=False,
+        segmentation_model=segmentor
+    )
     # reg_mean = regularization.PGI(
     #     gmm=gmmref,
     #     gmmref=gmmref, 
@@ -1053,12 +1278,12 @@ def run():
     # )
 
     # Weighting
-    reg_mean = regularization.WeightedLeastSquares(
-        mesh, 
-        active_cells=actcore,
-        mapping=idenMap,
-        # reference_model=m0
-    )
+    # reg_mean = regularization.WeightedLeastSquares(
+    #     mesh, 
+    #     active_cells=actcore,
+    #     mapping=idenMap,
+    #     # reference_model=m0
+    # )
     reg_mean.alpha_s = 0.01
     reg_mean.alpha_x = 100
     reg_mean.alpha_y = 100
