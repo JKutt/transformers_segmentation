@@ -750,6 +750,8 @@ class GaussianMixtureSam(utils.WeightedGaussianMixture):
                 # if the mask is smaller than the user defined number of neighbors
                 if idx.shape[0] < (self.kneighbors + 1):
 
+                    print('in smaller mask')
+
                     self.indexpoint[kk, :] = self.indexpoint[kk, 0]
                     self.indexpoint[kk, -shape_idx:] = idx
 
@@ -989,9 +991,15 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
                 angle_degrees = np.arctan2(orientation_vector[1], orientation_vector[0]) * 180 / np.pi
 
                 print(f"Orientation angle (degrees): {angle_degrees}")
-                sqrt2 = np.sqrt(2)
+                angle_radians = angle_degrees * np.pi / 180
 
-                self.reg_dirs = [np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])] * self.mesh.nC
+                # Create the 2x2 rotation matrix
+                rotation_matrix = np.array([
+                    [np.cos(angle_radians), -np.sin(angle_radians)],
+                    [np.sin(angle_radians), np.cos(angle_radians)]
+                ])
+
+                self.reg_dirs[mask_data] = [np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])] * self.mesh.nC
             else:
                 raise ValueError("Not enough object pixels to determine orientation.")
 
