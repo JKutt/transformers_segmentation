@@ -468,6 +468,35 @@ class SavePGIOutput(directives.InversionDirective):
         return multi_target_misfit_directive.phims()
 
 
+# geological_model = sam_model.predict(mopt)
+def latin_hypercube_subsampling(samples, n_subsamples):
+    """
+    Perform Latin Hypercube subsampling on the given set of samples.
+
+    Parameters:
+    - samples (numpy.ndarray): Input samples of shape (n, num_dimensions).
+    - n_subsamples (int): Number of subsamples to generate.
+
+    Returns:
+    - numpy.ndarray: Subsamples selected using Latin Hypercube Sampling, with shape (n_subsamples, num_dimensions).
+    """
+    n = samples.shape[0]
+
+    # Generate random indices for each dimension
+    random_indices = np.random.permutation(n)
+
+    # Sort the indices along each dimension
+    sorted_indices = np.argsort(random_indices)
+
+    # Take the first n_subsamples indices along each dimension
+    subsample_indices = sorted_indices[:n_subsamples]
+
+    # Use the selected indices to extract the subsamples
+    subsamples = samples[subsample_indices]
+
+    return subsamples
+
+
 def calculate_iou(mask1, mask2):
     """
     Calculate the Intersection over Union (IoU) between two binary masks.
@@ -779,7 +808,7 @@ class GaussianMixtureSam(utils.WeightedGaussianMixture):
 
         return geological_model
 
-
+# interjecting the sam classification
 class SamClassificationModel():
 
     def __init__(
@@ -800,7 +829,10 @@ class SamClassificationModel():
         # sam.to(device=device)
         self.mask_generator = SamAutomaticMaskGenerator(sam)
 
-    def fit(self, model:np.ndarray=None, ) -> dict:
+    def fit(
+            self, 
+            model:np.ndarray=None,
+    ) -> dict:
 
         if model is None:
 
@@ -824,14 +856,20 @@ class SamClassificationModel():
 
             #
 
-            nlayers = len(result)
+            nlayers = len(result) - 1
 
             union_matrix = np.zeros((nlayers, nlayers))
+            mask_size_matrix = np.zeros((nlayers, nlayers))
             for ii in range(nlayers):
                 for jj in range(nlayers):
                     iou_score = calculate_iou(result[ii]['segmentation'], result[jj]['segmentation'])
                     union_matrix[ii, jj] = iou_score
+                    if iou_score > 0:
+                        mask_size_matrix[ii, jj] = np.where(result[jj]['segmentation'].flatten(order='F') == True)[0].shape[0]
                     print("IoU score:", iou_score)
+
+            print(f'union matirx: \n {union_matrix}')
+            print(f'size matirx: \n {mask_size_matrix}')
 
             # ------------------------------------------------------------------------------------
 
@@ -849,9 +887,22 @@ class SamClassificationModel():
                     mask_index = np.nonzero(sub_union_matrix[jj, :])
                     print(mask_index[0][-1])
                     # check which mask is larger
-                    sub_union_matrix[jj, mask_index[0][-1]] = 1
-                    sub_union_matrix[jj, mask_index[0][0]] = 0
+                    if sub_union_matrix[jj, :].shape[0] > 2:
+                        if mask_index[0][-1] < mask_index[0][0]:
+                            sub_union_matrix[jj, mask_index[0][-1]] = 0
+                            sub_union_matrix[jj, mask_index[0][0]] = 1
+                        else:
+                            sub_union_matrix[jj, mask_index[0][-1]] = 1
+                            sub_union_matrix[jj, mask_index[0][0]] = 0
+                    else:
+                        if mask_size_matrix[jj, mask_index[0][-1] + 1] < mask_size_matrix[jj, mask_index[0][0] + 1]:
+                            sub_union_matrix[jj, mask_index[0][-1]] = 0
+                            sub_union_matrix[jj, mask_index[0][0]] = 1
+                        else:
+                            sub_union_matrix[jj, mask_index[0][-1]] = 1
+                            sub_union_matrix[jj, mask_index[0][0]] = 0
 
+            print(f'sub union matirx: \n {sub_union_matrix}')
             # --------------------------------------------------------------------------------------
 
             # assign each cell a mask to assign it's neighbors
@@ -889,6 +940,12 @@ class SamClassificationModel():
 
             #
 
+            background_idx = np.where(result[0]['segmentation'].flatten(order='F') == True)[0]
+
+            background_locations = mask_locations[:, background_idx]
+
+            background_indexneighbors = latin_hypercube_subsampling(background_idx, sam_model.kneighbors + 1)
+
             for kk in range(mask_assignment.shape[0]):
 
                 # check union matrix for the correct mask
@@ -896,16 +953,17 @@ class SamClassificationModel():
                 print(union_index, sub_union_matrix.shape)
                 if union_index < 0:
 
-                    pass
+                    self.indexpoint[kk, :] = background_indexneighbors
 
                 else:
                     print(sub_union_matrix[union_index, :])
-                    mask_select = np.nonzero(sub_union_matrix[union_index, :])[0][0]
+                    mask_select = np.nonzero(sub_union_matrix[union_index, :])[0][0] + 1
 
                     idx = np.vstack(np.where(result[mask_select]['segmentation'].flatten(order='F') == True))[0]
                     shape_idx = idx.shape[0]
 
                     # if the mask is smaller than the user defined number of neighbors
+                    print(f'looking at shape of neighbours: {idx.shape} < {self.kneighbors + 1}')
                     if idx.shape[0] < (self.kneighbors + 1):
 
                         self.indexpoint[kk, :] = self.indexpoint[kk, 0]
@@ -916,10 +974,14 @@ class SamClassificationModel():
 
                         print(f"idx shape: {idx.shape} knei: {self.kneighbors} {shape_idx} {self.indexpoint.shape} {kk}")
                         print(idx[:(self.kneighbors + 1)].shape, mask_locations.shape, mask_assignment.shape)
-                        self.indexpoint[kk, :] = idx[:(self.kneighbors + 1)]
+                        # self.indexpoint[kk, :] = idx[:(self.kneighbors + 1)]
+                        self.indexpoint[kk, :] = latin_hypercube_subsampling(idx, sam_model.kneighbors + 1)
 
             self.masks = result
+            self.mask_assignment = mask_assignment
 
+        return result
+    
     def predict(
 
             self, 
@@ -929,17 +991,33 @@ class SamClassificationModel():
     ) -> np.ndarray:
 
         # output quasi-geological model
-        geological_model = np.zeros(model.shape, dtype=int)
+        geological_model = np.zeros(model.shape, dtype=float)
         print('in predict!')
         # loop through and take mean value of the assigned 
         for ii in range(model.shape[0]):
 
-            value = model[self.indexpoint[ii, :]].mean()
+            value = model[self.indexpoint[ii, :].astype(int)].mean()
             # idx = (np.abs(gmm._means - value)).argmin()
             geological_model[ii] = value # idx  # self.means_[idx]
             # print(f"assigning value: {geological_model[ii]}")
 
         return geological_model
+
+    def query_neighbours(
+            
+            self, 
+            cell_number: int=0
+    
+    ):
+
+        # check that cell number is in bounds
+        try:
+            
+            return self.mesh.gridCC[self.indexpoint[cell_number, :].astype(int), :]
+        
+        except ValueError as e:
+
+            raise ValueError(f'cell number is not within bounds: {e}')
 
 
 class GeologicalSegmentation(regularization.SmoothnessFullGradient):
@@ -1253,27 +1331,33 @@ def run():
     dike_dir_reg = np.logical_and(dike00,dike01)
 
     # reg model
-    # reg_model = model.copy()
+    reg_model = model.copy()
     
-    # reg_model[dike_dir_reg]=4
+    reg_model[dike_dir_reg]=4
 
-    # for ii in range(meshCore.nC):
+    for ii in range(meshCore.nC):
 
-    #     if reg_model[actcore][ii] == 4:
+        if reg_model[actcore][ii] == 4:
 
-    #         reg_cell_dirs[ii] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
+            reg_cell_dirs[ii] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
 
     # reg_cell_dirs[dike] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
-    segmentor = SamClassificationModel(
-        mesh,
-        segmentation_model_checkpoint=r"/home/juan/Documents/git/jresearch/PGI/dcip/sam_vit_h_4b8939.pth"
-    )
+    # segmentor = SamClassificationModel(
+    #     mesh,
+    #     segmentation_model_checkpoint=r"/home/juan/Documents/git/jresearch/PGI/dcip/sam_vit_h_4b8939.pth"
+    # )
 
-    reg_mean = GeologicalSegmentation(
+    # reg_mean = GeologicalSegmentation(
+    #     meshCore, 
+    #     reg_dirs=reg_cell_dirs,
+    #     ortho_check=False,
+    #     segmentation_model=segmentor
+    # )
+    reg_mean = regularization.SmoothnessFullGradient(
         meshCore, 
         reg_dirs=reg_cell_dirs,
         ortho_check=False,
-        segmentation_model=segmentor
+        # segmentation_model=segmentor
     )
     # reg_mean = regularization.PGI(
     #     gmm=gmmref,
@@ -1347,7 +1431,8 @@ def run():
     # Run!
     mcluster = inv.run(m0)
 
-    np.save("tik_model.npy", mcluster)
+    np.save("rotated_model_dip.npy", mcluster)
+    np.save("true_model_dip.npy", mtrue)
     # mcluster = np.load("rotated_model.npy")
 
     # plot
