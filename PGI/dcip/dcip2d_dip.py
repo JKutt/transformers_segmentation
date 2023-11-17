@@ -43,6 +43,19 @@ from SimPEG.regularization import (
     PGIsmallness,
 )
 
+from scipy.ndimage import laplace
+
+
+def minimum_curvature(input_matrix, num_iterations=100, alpha=0.1):
+    for _ in range(num_iterations):
+        # Calculate the Laplacian of the input matrix
+        laplacian = laplace(input_matrix)
+
+        # Update the input matrix using the Laplacian and a smoothing factor (alpha)
+        input_matrix += alpha * laplacian
+
+    return input_matrix
+
 
 # ----------------------------------------------------------------------------------------------
 
@@ -1031,16 +1044,31 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
             segmentation_model: SamClassificationModel=None,
             **kwargs
     ):
-        super.__init__(
-            mesh, 
+        super().__init__(
+            mesh=mesh, 
             alphas=alphas, 
             reg_dirs=reg_dirs, 
             ortho_check=ortho_check, 
             **kwargs)
 
+        self.mesh = mesh
         self.mask_assignment = None
         self.segmentation_model = segmentation_model
 
+    
+    def deriv(self, m):
+        m_d = self.mapping.deriv(self._delta_m(m))
+        G = self.cell_gradient
+        M_f = self.W
+        r = G @ (self.mapping * (self._delta_m(m)))
+
+        grad = m_d.T * (G.T @ (M_f @ r))
+
+        grad = minimum_curvature(np.reshape(grad.copy(), self.mesh.shape_cells, order='F'))
+        
+        return grad.flatten(order='F')
+
+    
     def update_gradients(self, xc):
 
         masks = self.segmentation_model.fit(xc)
@@ -1331,34 +1359,42 @@ def run():
     dike_dir_reg = np.logical_and(dike00,dike01)
 
     # reg model
-    reg_model = model.copy()
+    # reg_model = model.copy()
     
-    reg_model[dike_dir_reg]=4
+    # reg_model[dike_dir_reg]=4
 
-    for ii in range(meshCore.nC):
+    # for ii in range(meshCore.nC):
 
-        if reg_model[actcore][ii] == 4:
+    #     if reg_model[actcore][ii] == 4:
 
-            reg_cell_dirs[ii] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
+    #         reg_cell_dirs[ii] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
 
-    # reg_cell_dirs[dike] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
+    # # reg_cell_dirs[dike] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
     # segmentor = SamClassificationModel(
     #     mesh,
-    #     segmentation_model_checkpoint=r"/home/juan/Documents/git/jresearch/PGI/dcip/sam_vit_h_4b8939.pth"
+    #     segmentation_model_checkpoint=r"/home/johnathan/Documents/git/transformers_segmentation/PGI/dcip/sam_vit_h_4b8939.pth"
+    # )
+
+    # reg_mean = GeologicalSegmentation(
+    #     meshCore, 
+    #     reg_dirs=None,
+    #     ortho_check=False,
+    #     segmentation_model=segmentor
+    # )
+    # reg_mean = regularization.SmoothnessFullGradient(
+    #     meshCore, 
+    #     reg_dirs=reg_cell_dirs,
+    #     ortho_check=False,
+    #     # segmentation_model=segmentor
     # )
 
     # reg_mean = GeologicalSegmentation(
     #     meshCore, 
     #     reg_dirs=reg_cell_dirs,
     #     ortho_check=False,
-    #     segmentation_model=segmentor
+    #     segmentation_model=None
     # )
-    reg_mean = regularization.SmoothnessFullGradient(
-        meshCore, 
-        reg_dirs=reg_cell_dirs,
-        ortho_check=False,
-        # segmentation_model=segmentor
-    )
+
     # reg_mean = regularization.PGI(
     #     gmm=gmmref,
     #     gmmref=gmmref, 
@@ -1370,12 +1406,12 @@ def run():
     # )
 
     # Weighting
-    # reg_mean = regularization.WeightedLeastSquares(
-    #     mesh, 
-    #     active_cells=actcore,
-    #     mapping=idenMap,
-    #     # reference_model=m0
-    # )
+    reg_mean = regularization.WeightedLeastSquares(
+        mesh, 
+        active_cells=actcore,
+        mapping=idenMap,
+        # reference_model=m0
+    )
     reg_mean.alpha_s = 0.01
     reg_mean.alpha_x = 100
     reg_mean.alpha_y = 100
@@ -1384,7 +1420,7 @@ def run():
 
 
     # Optimization
-    opt = optimization.ProjectedGNCG(maxIter=8, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
+    opt = optimization.ProjectedGNCG(maxIter=15, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
     opt.remember('xc')
 
     # Set the inverse problem
