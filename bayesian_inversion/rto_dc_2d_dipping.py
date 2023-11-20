@@ -108,16 +108,10 @@ def run():
     fig,ax = plt.subplots(3, 1,figsize=(10,20))
     mm1 = mesh.plotImage(model, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
 
-    ax[0].set_xlim([-1000,1000])
-    ax[0].set_ylim([-250,0])
-    # ax[0].set_aspect(2)
-    # plt.colorbar(mm1[0])
-
-
     # define conductivities
     res_true = np.ones(mesh.nC)
-    res_true[model==3]= 500
-    res_true[model==4]= 10
+    res_true[model==3]= 500.0
+    res_true[model==4]= 10.0
 
     cond_true = 1./res_true
 
@@ -130,42 +124,47 @@ def run():
     actcore,  meshCore = utils.mesh_utils.ExtractCoreMesh(xyzlim, mesh)
     actind = np.ones_like(actcore)
 
-    clim = [mtrue.min(), mtrue.max()]
-
-    fig, ax = plt.subplots(1,1,figsize=(10,5))
-    dat = meshCore.plotImage(mtrue[actcore], ax=ax, clim=clim, pcolorOpts={'cmap':"Spectral"})
-    ax.set_title('Tikhonov inversion',fontsize=24)
-    ax.set_aspect('equal')
-    ax.set_ylim([-15,0])
-    ax.set_xlabel('x (m)',fontsize=22)
-    ax.set_ylabel('z (m)',fontsize=22)
-    ax.tick_params(labelsize=20)
-    fig.subplots_adjust(right=0.85)
-    plt.colorbar(dat[0])
-    plt.show()
-
     # ------------------------------------------------------------------------------------------------
 
     # generate acquisition data (true data)
 
     #
 
-    # Setup a Dipole-Dipole Survey with 1m and 2m dipoles
-    xmin, xmax = -15., 15.
+    xmin, xmax = -350., 350.
     ymin, ymax = 0., 0.
     zmin, zmax = 0, 0
 
     endl = np.array([[xmin, ymin, zmin], [xmax, ymax, zmax]])
-    survey1 = dcutils.generate_dcip_survey(
-        endl, survey_type="dipole-dipole", dim=mesh.dim,
-        a=1, b=1, n=16, d2flag='2.5D'
-    )
-    survey2 = dcutils.generate_dcip_survey(
-        endl, survey_type="dipole-dipole", dim=mesh.dim,
-        a=2, b=2, n=16, d2flag='2.5D'
-    )
+    srclist = []
 
-    survey = dc.Survey(survey1.source_list + survey2.source_list)
+    for dipole in np.linspace(25,250,10):
+        
+        survey1 = dcutils.generate_dcip_survey(
+            
+            endl, survey_type="pole-dipole",
+            dim=mesh.dim,
+            a=dipole,
+            b=dipole,
+            n=16,
+        
+        )
+
+        # print(dipole)
+
+        survey2 = dcutils.generate_dcip_survey(
+            
+            endl, survey_type="dipole-pole",
+            dim=mesh.dim,
+            a=dipole,
+            b=dipole,
+            n=16,
+        
+        )
+        
+        srclist +=(survey1.source_list)
+        srclist +=(survey2.source_list)
+
+    survey = dc.Survey(srclist)
 
     # Setup Problem with exponential mapping and Active cells only in the core mesh
     expmap = maps.ExpMap(mesh)
@@ -190,7 +189,6 @@ def run():
 
     m0 = -np.log(np.median((dcutils.apparent_resistivity_from_voltage(survey, simulation_data.dobs)))) * np.ones(mapping.nP)
     # print(np.median((DCUtils.apparent_resistivity_from_voltage(survey, simulation_data.dobs))))
-
 
     # -------------------------------------------------------------------------------------------------
 
