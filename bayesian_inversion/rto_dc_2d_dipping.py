@@ -65,11 +65,16 @@ def perform_rto(simulation, mesh, perturbed_model, initial_x ):
 
 def run():
 
-    # 2D Mesh
-    #########
-    csx,  csy,  csz = 0.25,  0.25,  0.25
+    # -------------------------------------------------------------------------------------------------
+
+    # create a 2d mesh for a dc simulation
+
+    #
+
+    #2D mesh
+    csx,  csy,  csz = 5.,  5.,  5.
     # Number of core cells in each direction
-    ncx,  ncz = 123,  61
+    ncx,  ncz = 163,  61
     # Number of padding cells to add in each direction
     npad = 12
     # Vectors of cell lengthts in each direction
@@ -79,50 +84,50 @@ def run():
     mesh = discretize.TensorMesh([hx,  hz], x0="CN")
     mesh.x0[1] = mesh.x0[1] + csz / 2.
 
-    # 2-cylinders Model Creation
-    ##########################
-    # Spheres parameters
-    x0,  z0,  r0 = -6.,  -5.,  3.
-    x1,  z1,  r1 = 6.,  -5.,  3.
+    print(mesh)
 
-    ln_sigback = -np.log(500.)
-    ln_sigc = -np.log(90.)
-    ln_sigr = -np.log(50.)
+    # -----------------------------------------------------------------------
 
-    # Add some variability to the physical property model
-    noisemean = 0.
-    noisevar = np.sqrt(0.001)
-    ln_over = -2.
+    # create a synthetic model for a dc simulation
 
-    mtrue = ln_sigback * np.ones(mesh.nC) + norm(noisemean, noisevar).rvs(mesh.nC)
-    mprim = copy.deepcopy(mtrue)
+    #
 
-    csph = (np.sqrt((mesh.gridCC[:, 1] - z0) **
-                    2. + (mesh.gridCC[:, 0] - x0)**2.)) < r0
-    mtrue[csph] = ln_sigc * np.ones_like(mtrue[csph]) + \
-        norm(noisemean, noisevar).rvs(np.prod((mtrue[csph]).shape))
+    model = 3 * np.ones(mesh.nC, dtype='int64')
 
-    # Define the sphere limit
-    rsph = (np.sqrt((mesh.gridCC[:, 1] - z1) **
-                    2. + (mesh.gridCC[:, 0] - x1)**2.)) < r1
-    mtrue[rsph] = ln_sigr * np.ones_like(mtrue[rsph]) + \
-        norm(noisemean, noisevar).rvs(np.prod((mtrue[rsph]).shape))
+    # divide domain by  45* fault at 100 m
+    fault_function = lambda x, slope, shift: slope * x + shift
 
-    # sphere smaller but higher conductivity
-    csph = (np.sqrt((mesh.gridCC[:, 1] - z0) **
-                    2. + (mesh.gridCC[:, 0] - x0)**2.)) < r0
-    mtrue[csph] = ln_sigc * np.ones_like(mtrue[csph]) + \
-        norm(noisemean, noisevar).rvs(np.prod((mtrue[csph]).shape))
+    # Dike 45*
+    dike0 = mesh.gridCC[:,1] > fault_function(mesh.gridCC[:,0],1, 100)
+    dike1 = mesh.gridCC[:,1] < fault_function(mesh.gridCC[:,0],1, 175)
+    dike = np.logical_and(dike0,dike1)
+
+    model[dike]=4
+
+    # plot
+    fig,ax = plt.subplots(3, 1,figsize=(10,20))
+    mm1 = mesh.plotImage(model, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
+
+    ax[0].set_xlim([-1000,1000])
+    ax[0].set_ylim([-250,0])
+    # ax[0].set_aspect(2)
+    # plt.colorbar(mm1[0])
 
 
-    mtrue = utils.mkvc(mtrue)
-    xmin,  xmax = -15., 15
-    ymin,  ymax = -15., 0.
-    #xmin,  xmax = mesh.vectorNx.min(), mesh.vectorNx.max()
-    #ymin,  ymax = mesh.vectorNy.min(), mesh.vectorNy.max()
-    print(xmin,xmax,ymin,ymax)
+    # define conductivities
+    res_true = np.ones(mesh.nC)
+    res_true[model==3]= 500
+    res_true[model==4]= 10
+
+    cond_true = 1./res_true
+
+    mtrue = np.log(cond_true)
+
+    xmin, xmax = -400., 400.
+    ymin, ymax = -300., 0.
+    zmin, zmax = 0, 0
     xyzlim = np.r_[[[xmin, xmax], [ymin, ymax]]]
-    actcore,  meshCore = discretize.utils.mesh_utils.extract_core_mesh(xyzlim, mesh)
+    actcore,  meshCore = utils.mesh_utils.ExtractCoreMesh(xyzlim, mesh)
     actind = np.ones_like(actcore)
 
     clim = [mtrue.min(), mtrue.max()]
@@ -252,7 +257,7 @@ def run():
     #     results[ii] = rto_tasks[ii].get()
     results = rto_tasks
     # recovered_model = np.vstack(results).mean(axis=0)
-    np.save(r'./rto_models_2d_beta_1e-4.npy', np.vstack(results))
+    np.save(r'./rto_models_2d_dip.npy', np.vstack(results))
 
 
 if __name__ == '__main__':
