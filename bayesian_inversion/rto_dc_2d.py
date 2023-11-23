@@ -19,7 +19,7 @@ from scipy.sparse import diags
 from pymatsolver import Pardiso as Solver
 
 
-def perform_rto(simulation, mesh, perturbed_model, initial_x ):
+def perform_rto(simulation, mesh, perturbed_model, initial_x, idx ):
 
     std = 0.002 * np.abs(simulation.survey.dobs)
 
@@ -41,6 +41,7 @@ def perform_rto(simulation, mesh, perturbed_model, initial_x ):
     # reg_rto = regularization.Sparse(
     #     mesh, alpha_s=1, reference_model=perturbed_model
     # )
+    # reg_rto.norms = [0, 2, 2]
 
     # now determine best beta
     dmis_eigen = utils.eigenvalue_by_power_iteration(dmis_rto, initial_x)
@@ -48,7 +49,7 @@ def perform_rto(simulation, mesh, perturbed_model, initial_x ):
     reg_eigen = utils.eigenvalue_by_power_iteration(reg_rto, initial_x)
 
     ratio = np.asarray(dmis_eigen / reg_eigen)
-    beta = ratio
+    beta = 1e-6 * ratio
 
     print(f'beta is: {beta}')
 
@@ -61,7 +62,11 @@ def perform_rto(simulation, mesh, perturbed_model, initial_x ):
     invProb.startup(initial_x)
     invProb.beta = beta
 
-    return opt.minimize(invProb.evalFunction, initial_x)
+    sample = opt.minimize(invProb.evalFunction, initial_x)
+
+    # np.save(f'./rto_models/rto_models_2d_{idx}.npy', sample)
+
+    return sample
 
 def run():
 
@@ -177,7 +182,7 @@ def run():
         solver=Solver
     )
 
-    std_sim = 0.02
+    std_sim = 0.05
 
     simulation_data = simulation.make_synthetic_data(mtrue[actcore], relative_error=std_sim, force=True)
     # survey.eps = 1e-4
@@ -192,8 +197,8 @@ def run():
     # rto
 
     #
-    num_samples = 25
-    beta_perturb = 1e3
+    num_samples = 200
+    beta_perturb = 1e4
     # Wm = np.sqrt(beta_perturb) * np.eye(mesh.nC)
 
     n_model_samples = meshCore.nC
@@ -241,6 +246,7 @@ def run():
                             meshCore,
                             perturbed_mod,
                             m0,
+                            ii,
                         )
 
     print(f'finished launch: {time.time() - start} seconds')
@@ -252,7 +258,7 @@ def run():
     #     results[ii] = rto_tasks[ii].get()
     results = rto_tasks
     # recovered_model = np.vstack(results).mean(axis=0)
-    np.save(r'./rto_models_2d_beta_1e-4.npy', np.vstack(results))
+    np.save(r'./rto_models_2d_l2px2py2pz2_200samples.npy', np.vstack(results))
 
 
 if __name__ == '__main__':
