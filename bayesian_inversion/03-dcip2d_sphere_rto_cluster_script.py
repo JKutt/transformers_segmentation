@@ -193,6 +193,7 @@ while ii < 100:
     dmis_rto.W = 1 / ((0.06 * np.abs(simulation_rto.survey.dobs)) + survey_rto.eps)
     # Regularization
     regmap = maps.IdentityMap(nP=int(actcore.sum()))
+    
     # reg = regularization.Sparse(mesh, indActive=active, mapping=regmap)
 
     # reg_rto = regularization.WeightedLeastSquares(
@@ -201,14 +202,16 @@ while ii < 100:
     #     mapping=regmap,
     #     reference_model=perturbed_mod
     # )
-    reg_rto = regularization.Sparse(
-        mesh, alpha_s=1, active_cells=actcore, mapping=regmap, reference_model=perturbed_mod
-    )
-    reg_rto.norms = [0, 1, 1]
     # reg_rto.alpha_s = 1/csx**2
     # reg_rto.alpha_x = 100
     # reg_rto.alpha_y = 100
     # reg_rto.alpha_z = 100
+
+    reg_rto = regularization.Sparse(
+        mesh, alpha_s=1, active_cells=actcore, mapping=regmap, reference_model=perturbed_mod
+    )
+    reg_rto.norms = [0, 1, 1]
+    
 
     # Optimization object
     opt_rto = optimization.ProjectedGNCG(maxIter=10, lower=-10, upper=10,
@@ -235,14 +238,17 @@ while ii < 100:
     )
 
     # Inversion directives
-    Target = directives.TargetMisfit()
+    Target = directives.TargetMisfit() 
     betaSched = directives.BetaSchedule(coolingFactor=2.,  coolingRate=1.)
     updateSensW = directives.UpdateSensitivityWeights(threshold=1e-2,everyIter=False)
     update_Jacobi = directives.UpdatePreconditioner()
+
+    # we don't add the target directive because we want the IRLS to sample the model space
     inv_rto = inversion.BaseInversion(invProb_rto,  directiveList=[ # updateSensW, 
-                                                        Target,
+                                                        # Target,
                                                         betaSched,
                                                         #    update_Jacobi,
+                                                        update_IRLS,
                                                         ])
 
     import time
