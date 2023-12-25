@@ -38,7 +38,23 @@ Geophysicists interpret inversion models in order to communicate the results to 
 
 3) Volume estimates.
 
-These questions can be a challenge to anwser because geophysical models are non-unique and ill-posed. The problem is an optimization problem solved by minimizing the objective function ([Tikhonov and Arsenin, 1977](https://www.scirp.org/(S(351jmbntvnsjt1aadkozje))/reference/referencespapers.aspx?referenceid=1111962)):
+These questions can be a challenge to anwser because geophysical models are non-unique and ill-posed. The problem is an optimization problem solved by minimizing an objective function ([Tikhonov & Arsenin (1977)](https://www.scirp.org/(S(351jmbntvnsjt1aadkozje))/reference/referencespapers.aspx?referenceid=1111962)). within this framework there has been multiple approaches to produce inversion results better that are more ike geological structure. 
+
+Early approaches explored different model norms ([](10.1093/gji/ggu067), [](10.1093/gji/ggz156), [](https://doi.org/10.1111/1365-2478.13063)). By using sparse norms more compact bodies are promoted in the model space giving sharper defined interfaces. 
+
+This is commony used today and lead into more methods exploring the model regularization to explore recovering dips of structures ([](https://doi.org/10.1111/1365-2478.13417))and compact geological structures.
+
+Other approaches integrate geologic structure by creating a quasi-geoogical model from the geological inversion ([](10.1093/gji/ggz389), [Balza et al. (2023)](https://ui.adsabs.harvard.edu/abs/2022AGUFMNS34B..01B), [](10.1190/INT-2019-0272.1)). Petrophyically and Geologically Guided Inversion (PGI) encodes a Guassian mixture model with physical properties within the smallness term of the model regularization.
+
+image segmentation:
+
+Taking things further with the PGI framework, Astic then incorporated Gaussian mixture Markov Random fields that constructs a coupling matrix that encodes geological rules([](10.1190/segam2021-3583615.1)). This was used to overcome the onion problem ([](https://doi.org/10.14288/1.0394725))
+
+image segmentation transformers:
+([](https://doi.org/10.48550/arXiv.2306.11730))
+
+
+## Rotated Gradients
 
 $$
 \label{reginv}
@@ -82,7 +98,6 @@ $$
 
 Segmentations.....
 
-## Rotated Gradients
 
 Rotating the objective function ([](https://doi.org/10.1190/1.1444705))
 
@@ -96,5 +111,7 @@ $$
 ## Geological Segmentation with Transformers
 
 ## Geological Classification
+
+[Omni seg](http://arxiv.org/abs/2311.11666)
 
 ## Segmentation-guided regularization
