@@ -1,23 +1,6 @@
 ---
 # Math frontmatter:
 math:
-  '\marginal' : '\mathcal{P}(\mathbf{d} | \mathbf{m})'
-  '\posterior' : '\mathcal{P}(\mathbf{m} | \mathbf{d})'
-  '\prior'     : '\mathcal{P}(\mathbf{m})'
-  '\mariginalp' : '\mathcal{P}(\tilde{\mathbf{d}} | \mathbf{m})'
-  '\posteriorp' : '\mathcal{P}(\tilde{\mathbf{m}} | \tilde{\mathbf{d}})'
-  '\priorp'     : '\mathcal{P}(\tilde{\mathbf{m}})'
-  '\marginalu' : '\mathcal{P}(\mathbf{d} | \mathbf{m}, \mu)'
-  '\posterioru' : '\mathcal{P}(\mathbf{m}, \mu | \mathbf{d})'
-  '\prioru'     : '\mathcal{P}(\mathbf{m} | \mu)'
-  '\priormu'    : '\mathcal{P}(\mu)'
-  '\fm'        : '\mathcal{F}(\mathbf{m})'
-  '\fmp'        : '\mathcal{F}(\tilde{\mathbf{m}})'
-  '\d'         : '\mathbf{d}'
-  '\m'         : '\mathbf{m}'
-  '\wd'         : '\mathbf{W}_d'
-  '\dp'         : '\tilde{\mathbf{d}}'
-  '\mp'         : '\tilde{\mathbf{m}}'
 
 ---
 
@@ -38,19 +21,13 @@ Geophysicists interpret inversion models in order to communicate the results to 
 
 3) Volume estimates.
 
-These questions can be a challenge to anwser because geophysical models are non-unique and ill-posed. The problem is an optimization problem solved by minimizing an objective function ([Tikhonov & Arsenin (1977)](https://www.scirp.org/(S(351jmbntvnsjt1aadkozje))/reference/referencespapers.aspx?referenceid=1111962)). within this framework there has been multiple approaches to produce inversion results better that are similar to typical geological structure. 
+These questions can be a challenge to anwser because geophysical models are non-unique and ill-posed. The problem is an optimization problem solved by minimizing an objective function ([Tikhonov & Arsenin (1977)](https://www.scirp.org/(S(351jmbntvnsjt1aadkozje))/reference/referencespapers.aspx?referenceid=1111962)). within this framework there has been multiple approaches to produce inversion results better that are similar to typical geological structure. Early approaches used a constrained inversions ([](https://dx.doi.org/10.14288/1.0052682), [](https://dx.doi.org/10.14288/1.0052390)) to introduce strong a priori information and bounds to the accepted models. This information can be encoded in either the reference model or smalness weights. Most common information is from drill logs including measurments made in-situ. Others explored different model norms ([](10.1093/gji/ggu067), [](10.1093/gji/ggz156), [](https://doi.org/10.1111/1365-2478.13063)). By using sparse norms more compact bodies are promoted in the model space giving sharper defined interfaces. This is commony used today and lead into more methods exploring the model regularization to explore recovering dips of structures ([](https://doi.org/10.1111/1365-2478.13417))and compact geological structures.
 
-Early approaches used a constrained inversions ([](https://dx.doi.org/10.14288/1.0052682), [](https://dx.doi.org/10.14288/1.0052390)) to introduce strong a priori information and bounds to the accepted models. This information can be encoded in either the reference model or smalness weights. Most common information is from drill logs including measurments made in-situ.  
-
-Others explored different model norms ([](10.1093/gji/ggu067), [](10.1093/gji/ggz156), [](https://doi.org/10.1111/1365-2478.13063)). By using sparse norms more compact bodies are promoted in the model space giving sharper defined interfaces. This is commony used today and lead into more methods exploring the model regularization to explore recovering dips of structures ([](https://doi.org/10.1111/1365-2478.13417))and compact geological structures.
-
-Other approaches integrate geologic structure by creating a quasi-geoogical model from the geological inversion ([](10.1093/gji/ggz389), [Balza et al. (2023)](https://ui.adsabs.harvard.edu/abs/2022AGUFMNS34B..01B), [](10.1190/INT-2019-0272.1)). Petrophyically and Geologically Guided Inversion (PGI) encodes a Guassian mixture model with physical properties within the smallness term of the model regularization.
+Recent approaches integrate geologic structure by creating a quasi-geoogical model from the geological inversion ([](10.1093/gji/ggz389), [Balza et al. (2023)](https://ui.adsabs.harvard.edu/abs/2022AGUFMNS34B..01B), [](10.1190/INT-2019-0272.1)). Petrophyically and Geologically Guided Inversion (PGI) encodes a Guassian mixture model with physical properties within the smallness term of the model regularization.
 
 Taking things further with the PGI framework, Astic then introduces image segmentation methods for thee geological classification. By swapping out the Gaussian mixture model (GMM) with Gaussian mixture Markov Random field (GMMRF) and a coupling matrix that encodes geological rules([](10.1190/segam2021-3583615.1)) better quasi-geological models are prodcued. The GMMRF This was used to solve the onion problem with the standard Gaussian mixture model ([](https://doi.org/10.14288/1.0394725)). The GMMRF has the benifit of incorporating spatial information via a defined neighborhood of a single cell. This is the connection for where the geological rules can be enforced. By accessing different neighborhoods, geological orientations can be infered.
 
-image segmentation transformers:
-Keeping on the theme of image segmentation for the geological classification, the GMMRF is still manual approach with hyper parameters that may or may not work for every model. Recent success with machine earning models such as the transformer where at there core take advantage of the construct of the attention mechanism ([](https://doi.org/10.48550/arXiv.1706.03762)). Attention is unique in as it learns to identify pixels (or cells) and classifies them according to the unique set of neighbouring pixels often refered to as heat maps. Transformers, though began in natural language processing, have recently been successful in the computer vision space ([](https://doi.org/10.48550/arXiv.2010.11929), [](https://doi.org/10.48550/arXiv.2304.02643)). Recently transformers have been applied to medical imagining probems where segmentation is required for identifying stuctures in the brain ([](https://doi.org/10.48550/arXiv.2306.11730)). This paper will explore the use of Transformers for the segmentation of the geophysical model in order to infer the geological structures and their orientations. This information will then be provided to both regularization components the smallness and smoothness. The segmentations will give us the hard boundaries while the orientations and geological boundaries can be used to guide the regularization of our objects. 
-
+Keeping with the theme of image segmentation for the geological classification, the GMMRF is a manual approach with hyper parameters that may or may not work for every model. Recent success with machine earning models such as the transformer where at there core take advantage of the construct of the attention mechanism ([](https://doi.org/10.48550/arXiv.1706.03762)). Attention is unique in as it learns to identify pixels (or cells) and classifies them according to the unique set of neighbouring pixels often refered to as heat maps. Transformers, though began in natural language processing, have recently been successful in the computer vision space ([](https://doi.org/10.48550/arXiv.2010.11929), [](https://doi.org/10.48550/arXiv.2304.02643)). Recently transformers have been applied to medical imagining probems where segmentation is required for identifying stuctures in the brain ([](https://doi.org/10.48550/arXiv.2306.11730)). This paper will explore the use of Transformers for the segmentation of the geophysical model in order to infer the geological structures and their orientations. This information will then be provided to both regularization components the smallness and smoothness. The segmentations will give us the hard boundaries while the orientations and geological boundaries can be used to guide the regularization of our objects. The contribution of this work is to build up a quasi-geological model that can produce a prior taht drives the inversion to explore models more closely resembling geological structure and contacts. 
 
 ## Rotated Gradients
 
@@ -108,10 +85,53 @@ $$
 \end{aligned}
 $$
 
+Now with tensor **a** we can influence the regularization direction by defining the reference axis and alphas for each cell. In [](#rotated_gradients) we introduce the prior knowledge expecting a 45 degree westerly dip structure and apply the rotation to the objective function within the define structure and unrotated everywhere else.
+
+```{figure} ./figures/rotated_gradients.png
+:height: 350px
+:width: 550px
+:name: rotated_gradients
+:alt: gradrotate
+:align: center
+
+
+Recovered models and their distributions a) the true model, b) Tikhonov result, c) PGI result d) PGI with geological segmentation used for the classification.
+```
+
 ## Geological Segmentation with Transformers
+
+Commonly Convolutional Neural Networks are used for image segmentation but can have an inductive bias due to kernel sizes used for encoding spatial neighbours. Transformers benifit from having the notion of context derived from the entire image, not limited to kernel sizes. This notion of context allows the network to define a heatmap for every pixel of correlated cells.
+
+- show example of the heatmaps
+
+- show images of the segmentations
 
 ## Geological Classification
 
-[Omni seg](http://arxiv.org/abs/2311.11666)
+Geological classification is done similar to the work in [Omni seg](http://arxiv.org/abs/2311.11666) that lifts 2D segmentations of a 3D object and projects the segmentation into a 3D space. Here we use simiar methods to draw geoogical structures in a 2D inversion model. 
+We let $m_i \in M_{segments} (i=1,...,n)$ and to eliminate the impact of overlapping masks, create a correlation matrix $C \in \R^{N_m \times N_m}$ using the intersection of unions formula in [](#correlationmatrix)
+
+$$
+\label{corelationmatrix}
+\begin{aligned}
+C(m_i, m_j) = \frac{m_i \cap m_j}{m_i \cup m_j} \;\;\; \forall \;\; i,j = 1, ... , N_m
+\end{aligned}
+$$
+
+
+```{figure} ./figures/pgi_onion_example.png
+:height: 430px
+:width: 550px
+:name: onion example
+:alt: geoseg results
+:align: center
+
+
+Recovered models and their distributions a) the true model, b) Tikhonov result, c) PGI result d) PGI with geological segmentation used for the classification.
+```
 
 ## Segmentation-guided regularization
+
+## Complex simulation
+
+## Conclusions
