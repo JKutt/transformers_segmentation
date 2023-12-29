@@ -103,6 +103,16 @@ Recovered models and their distributions a) the true model, b) Tikhonov result, 
 Commonly Convolutional Neural Networks are used for image segmentation but can have an inductive bias due to kernel sizes used for encoding spatial neighbours. Transformers benifit from having the notion of context derived from the entire image, not limited to kernel sizes. This notion of context allows the network to define a heatmap for every pixel of correlated cells.
 
 - show example of the heatmaps
+```{figure} ./figures/heatmap.png
+:height: 230px
+:width: 575px
+:name: heatmap
+:alt: heatmap results
+:align: center
+
+
+Heat maps examples for pixels in the image.
+```
 
 - show images of the segmentations
 
@@ -114,9 +124,20 @@ We let $m_i \in M_{segments} (i=1,...,n)$ and to eliminate the impact of overlap
 $$
 \label{corelationmatrix}
 \begin{aligned}
-C(m_i, m_j) = \frac{m_i \cap m_j}{m_i \cup m_j} \;\;\; \forall \;\; i,j = 1, ... , N_m
+C(i, j) = \frac{m_i \cap m_j}{m_i \cup m_j} \;\;\; \forall \;\; i,j = 1, ... , N_m
 \end{aligned}
 $$
+
+Which has index map $I_{maps}$. Now we will want to place bounds on the minimum amount of pixels in a mask and how many mask are to be extracted leaving us with $C_{sub} \in \R^{N_{sub} \times N_{sub}}$. From the remaing masks we want to create a hierarcial order of them. This can be done using a voting system:
+
+$$
+\label{corelationmatrix}
+\begin{aligned}
+v_k = \sum_{j=1}^{N_{sub}} \mathbb{I}(C_{sub}(k, j) > 0) \; \in \; k = 1, ...,N_{sub}
+\end{aligned}
+$$
+
+With this we can then create patches $P_{ordered}$ in a variety of ways with user defined rules. 
 
 
 ```{figure} ./figures/pgi_onion_example.png
