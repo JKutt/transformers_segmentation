@@ -137,13 +137,32 @@ v_k = \sum_{j=1}^{N_{sub}} \mathbb{I}(C_{sub}(k, j) > 0) \; \in \; k = 1, ...,N_
 \end{aligned}
 $$
 
-With this we can then create patches $P_{ordered}$ in a variety of ways with user defined rules. 
+We can then create patches $P_{ordered}$ which are ordered according to the vote counts. From here we construct a final matrix in a variety of ways with user defined rules. 
 
+|       | $P_1$ | $P_2$ | $P_3$ | ... | $P_n$ |
+| ---   | ---   | ---   | ---   | --- |   --- |
+| $P_1$ | 1     |  0    | 0     | ... |    0  |
+| $P_2$ | 0     |  1    | 0     | ... |    0  |
+| $P_3$ | 0     |  0    | 1     | ... |    0  |
+| ...   | ...   | ...   | ...   | ... | ...   |
+| $P_n$ | 0     |  0    | 0     | ... |    1  |
+
+
+this matrix is then used when making the geological classification. For example, in [](#onion_example) where the model has to travel through multiple Gaussians and we do not expect to have nested geological features within certain features we can set the $P_{ordered}$ matrix as
+
+|       | $P_1$ | $P_2$ | $P_3$ |
+| ---   | ---   | ---   | ---   |
+| $P_1$ | 1     |  0    | 0     |
+| $P_2$ | 0     |  1    | 0     |
+| $P_3$ | 0     |  0    | 1     |
+| $P_4$ | 0     |  0    | 1     |
+
+indicating that when we are in $P_3$ we use the neighbourhodd of $P_4$ to make the classification.
 
 ```{figure} ./figures/pgi_onion_example.png
 :height: 430px
 :width: 550px
-:name: onion example
+:name: onion_example
 :alt: geoseg results
 :align: center
 
