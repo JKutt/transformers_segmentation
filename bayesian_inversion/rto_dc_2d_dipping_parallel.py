@@ -20,8 +20,10 @@ from pymatsolver import Pardiso as Solver
 
 
 def perform_rto(
+    dobs_org,
     perturbed_model,
     initial_x,
+    idx,
     csx:float=5.0,
     csy:float=5.0,
     csz:float=5.0,
@@ -60,7 +62,6 @@ def perform_rto(
     ymin, ymax = -300., 0.
     zmin, zmax = 0, 0
     xyzlim = np.r_[[[xmin, xmax], [ymin, ymax]]]
-
     actcore,  meshCore = utils.mesh_utils.ExtractCoreMesh(xyzlim, mesh)
 
     # ------------------------------------------------------------------------------------------------
@@ -105,6 +106,8 @@ def perform_rto(
 
     survey = dc.Survey(srclist)
 
+    survey.dobs = dobs_org
+
     # create the simulation
     expmap = maps.ExpMap(mesh)
     mapactive = maps.InjectActiveCells(
@@ -125,6 +128,7 @@ def perform_rto(
     Wd = np.diag(std)
 
     perturbed_data = np.random.multivariate_normal(simulation.survey.dobs, Wd, size=1)[0, :]
+
     data_object = data.Data(simulation.survey, dobs=perturbed_data, standard_deviation=std)
 
     # Define the data misfit. Here the data misfit is the L2 norm of the weighted
@@ -135,7 +139,7 @@ def perform_rto(
 
     # Define the regularization (model objective function)
     reg_rto = regularization.WeightedLeastSquares(
-        mesh, alpha_s=1e-4, alpha_x=1, reference_model=perturbed_model
+        meshCore, alpha_s=1e-4, alpha_x=1, reference_model=perturbed_model
     )
     # reg_rto = regularization.Sparse(
     #     mesh, alpha_s=1, reference_model=perturbed_model
@@ -147,7 +151,7 @@ def perform_rto(
     reg_eigen = utils.eigenvalue_by_power_iteration(reg_rto, initial_x)
 
     ratio = np.asarray(dmis_eigen / reg_eigen)
-    beta = ratio
+    beta = 1e-8 * ratio
 
     print(f'beta is: {beta}')
 
@@ -160,7 +164,11 @@ def perform_rto(
     invProb.startup(initial_x)
     invProb.beta = beta
 
-    return opt.minimize(invProb.evalFunction, initial_x)
+    sample_model = opt.minimize(invProb.evalFunction, initial_x)
+
+    np.save(f'/home/juan/Documents/git/jresearch/bayesian_inversion/rtobe_samples/sample_{idx}.npy', sample_model)
+
+    return sample_model
 
 def run():
 
@@ -294,8 +302,8 @@ def run():
     # rto
 
     #
-    num_samples = 25
-    beta_perturb = 1e3
+    num_samples = 500
+    beta_perturb = 1e4
     # Wm = np.sqrt(beta_perturb) * np.eye(mesh.nC)
 
     n_model_samples = meshCore.nC
@@ -318,7 +326,7 @@ def run():
     draws_beta = [None] * num_samples
     TKO = False
 
-    process_pool = multiprocessing.Pool(multiprocessing.cpu_count()-1)
+    # process_pool = multiprocessing.Pool(multiprocessing.cpu_count()-1)
     rto_tasks = [None] * num_samples
 
     print('start processes')
@@ -328,29 +336,30 @@ def run():
 
         print(f"\n\n performing sampling: {ii}\n\n")
 
-        rto_tasks[ii] = process_pool.apply_async(
-                        perform_rto,
-                        (
-                            perturbed_mod,
-                            m0,
-                        )
-                    )
-        
-        # rto_tasks[ii] = perform_rto(
-        #                     simulation,
-        #                     meshCore,
+        # rto_tasks[ii] = process_pool.apply_async(
+        #                 perform_rto,
+        #                 (
+        #                     simulation_data.dobs,
         #                     perturbed_mod,
         #                     m0,
         #                 )
+        #             )
+        
+        rto_tasks[ii] = perform_rto(
+                            simulation_data.dobs,
+                            perturbed_mod,
+                            m0,
+                            ii
+                        )
 
     print(f'finished launch: {time.time() - start} seconds')
-    process_pool.close()
-    process_pool.join()  
-    print('getting rto models')
-    for ii in range(num_samples):
+    # process_pool.close()
+    # process_pool.join()  
+    # print('getting rto models')
+    # for ii in range(num_samples):
 
-        results[ii] = rto_tasks[ii].get()
-    # results = rto_tasks
+    #     results[ii] = rto_tasks[ii].get()
+    results = rto_tasks
     # recovered_model = np.vstack(results).mean(axis=0)
     np.save(r'./rto_models_2d_dip_parallel.npy', np.vstack(results))
 
