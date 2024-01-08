@@ -73,19 +73,41 @@ $$
 \end{aligned}
 $$
 
-Segmentations.....
-
-
 Rotating the objective function ([](https://doi.org/10.1190/1.1444705))
 
 $$
-\label{reginv}
+\label{reginvrot}
 \begin{aligned}
 \phi_{m}(\mathbf{m}) =\alpha_s \int_V \bigl\{ m(\vec{r}) - m_0 \bigr\}^2 dv \\ + \alpha_{x'} \int_V \Bigl\{ \frac{\partial{[m(\vec{r}) - m_0]}}{\partial{x'}} \Bigr\}^2 dv \\ + \alpha_{y'} \int_V \Bigl\{ \frac{\partial{[m(\vec{r}) - m_0]}}{\partial{y'}} \Bigr\}^2 dv \\ + \alpha_{z'} \int_V \Bigl\{ \frac{\partial{[m(\vec{r}) - m_0]}}{\partial{z'}} \Bigr\}^2 dv
 \end{aligned}
 $$
 
-Now with tensor **a** we can influence the regularization direction by defining the reference axis and alphas for each cell. In [](#rotated_gradients) we introduce the prior knowledge expecting a 45 degree westerly dip structure and apply the rotation to the objective function within the define structure and unrotated everywhere else.
+The derivatives obtained have directional vectors in ($\hat{x}$, $\hat{y}$, $\hat{z}$):
+
+$$
+\label{reginv}
+\begin{aligned}
+\vec{g}_s = \mathbf{R} \vec{g}_u
+\end{aligned}
+$$
+
+Where $\mathbf{R}$ is the rotation matrix taking the gradient vectors from ($x$, $y$, $z$) coordinate frame to the ($x'$, $y'$, $z'$) rotated frame. If we substitute this into [](#reginvrot) we can organize the objective function for the smoothness portion to be:
+
+$$
+\label{regrot}
+\begin{aligned}
+\phi_{smoothness}(\mathbf{m}) = \int_{V} \nabla \mathbf{m} \cdot \mathbf{a} \nabla \mathbf{m} \;dV
+\end{aligned}
+$$
+
+$$
+\label{reginv}
+\begin{aligned}
+\mathbf{a} = \mathbf{Q} \mathbf{L} \mathbf{Q}^{-1}
+\end{aligned}
+$$
+
+Where $\mathbf{Q}$ are the regularization directions and $\mathbf{L}$ are the directional $\alpha$'s. Now with tensor **a** we can influence the regularization direction by defining the reference axis and $\alpha$'s for each cell. In [](#rotated_gradients) we introduce the prior knowledge expecting a 45 degree westerly dip structure and apply the rotation to the objective function within the define structure and unrotated everywhere else.
 
 ```{figure} ./figures/rotated_gradients.png
 :height: 350px
@@ -97,6 +119,8 @@ Now with tensor **a** we can influence the regularization direction by defining 
 
 Recovered models and their distributions a) the true model, b) Tikhonov result, c) PGI result d) PGI with geological segmentation used for the classification.
 ```
+
+We can see That if we can supply helpful information to the regularization, the recovered model is more geological and closer to the ground truth.
 
 ## Geological Segmentation with Transformers
 
