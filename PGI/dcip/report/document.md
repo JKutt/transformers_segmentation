@@ -138,17 +138,27 @@ Commonly Convolutional Neural Networks are used for image segmentation but can h
 Heat maps examples for pixels in the image.
 ```
 
+Using the transformer we can input the geophysical model with physical parameter $\rho$. For the purpose of this study, our physical parameter is resistivity. The geophyscial model is a vector of cells $\mathbf{\Rho} = [\rho_1, \rho_2, ..., \rho_n]$. By using the SAM model [](10.48550/ARXIV.2306.11730) we can represent the mask generation as:
+
+$$
+\label{corelationmatrix}
+\begin{aligned}
+M_{segments} = F_{\Theta}(\mathbf{\Rho})
+\end{aligned}
+$$
+
+Even not being trained on geological data, the masks from the pretrained model are quite evective at identifying structure.
 - show images of the segmentations
 
 ## Geological Classification
 
 Geological classification is done similar to the work in [Omni seg](http://arxiv.org/abs/2311.11666) that lifts 2D segmentations of a 3D object and projects the segmentation into a 3D space. Here we use simiar methods to draw geoogical structures in a 2D inversion model. 
-We let $m_i \in M_{segments} (i=1,...,n)$ and to eliminate the impact of overlapping masks, create a correlation matrix $C \in \R^{N_m \times N_m}$ using the intersection of unions formula in [](#correlationmatrix)
+We let $m^i \in M_{segments} (i=1,...,n)$ and to eliminate the impact of overlapping masks, create a correlation matrix $C \in \R^{N_m \times N_m}$ using the intersection of unions formula in [](#correlationmatrix)
 
 $$
 \label{corelationmatrix}
 \begin{aligned}
-C(i, j) = \frac{m_i \cap m_j}{m_i \cup m_j} \;\;\; \forall \;\; i,j = 1, ... , N_m
+C(i, j) = \frac{m^i \cap m^j}{m^i \cup m^j} \;\;\; \forall \;\; i,j = 1, ... , N_m
 \end{aligned}
 $$
 
@@ -161,27 +171,52 @@ v_k = \sum_{j=1}^{N_{sub}} \mathbb{I}(C_{sub}(k, j) > 0) \; \in \; k = 1, ...,N_
 \end{aligned}
 $$
 
-We can then create patches $P_{ordered}$ which are ordered according to the vote counts. From here we construct a final matrix in a variety of ways with user defined rules. 
+We can then create patches $C_{ordered}$ which are ordered according to the vote counts. From here we construct a final weights matrix $\mathbf{W}$:
 
-|       | $P_1$ | $P_2$ | $P_3$ | ... | $P_n$ |
-| ---   | ---   | ---   | ---   | --- |   --- |
-| $P_1$ | 1     |  0    | 0     | ... |    0  |
-| $P_2$ | 0     |  1    | 0     | ... |    0  |
-| $P_3$ | 0     |  0    | 1     | ... |    0  |
-| ...   | ...   | ...   | ...   | ... | ...   |
-| $P_n$ | 0     |  0    | 0     | ... |    1  |
+|       |   $W_1$ | $W_2$   | ... | $W_n$ |
+| ---   |   ---   | ---     | --- |   --- |
+| $W_1$ | $w_{11}$  |  $w_{12}$ | ... |$w_{1n}$ |
+| $W_2$ | $w_{21}$  |  $w_{22}$ | ... |$w_{2n}$ |
+| ...   |   ...   |   ...   | ... | ...   |
+| $W_n$ | $w_{n1}$  |  $w_{n2}$ | ... |$w_{nn}$ |
 
+This matrix is then used when making the geological classification. For each mask we generatte a probabiity denisty function $\mathcal{P}_n(m_n |\; W_{nj})$ for $j = 1,2, .., N_{masks}$ in a situated mask $n \in n = 1,2, .., N_{masks}$. Our weights $W_{nj}$ are the rows of $W_{ij}$. To create the quasi-geoogical classification vector $G_{quasi}(p)$ we use the argmax function:
 
-this matrix is then used when making the geological classification. For example, in [](#onion_example) where the model has to travel through multiple Gaussians and we do not expect to have nested geological features within certain features we can set the $P_{ordered}$ matrix as
+$$
+\label{corelationmatrix}
+\begin{aligned}
+G_{quasi}(p) = \argmax\left[\; \mathcal{P}_n(m_n(p) \;|\; W_{nj})\;\right] \; \in \; p = 1,.....N_{cells}
+\end{aligned}
+$$
 
-|       | $P_1$ | $P_2$ | $P_3$ |
+Here $n$ is the deepest mask that cell $p$ is situated. Now that each cell has the properly assigned mask, we can relate back to the physical property by taking the mean value of the physical parameters situated inside a mask. Our quasi-geological model $G_{model}$ with physical with physical parameter $\rho$ has cells that are defined by the values contained inside a mask. in this instance, we will take the mean value. First we find the total number of cells inside a mask:
+
+$$
+\label{masktotal}
+\begin{aligned}
+K_i = \sum_{p = 1}^{N_{cells}} \mathbb{I}(m_p^i = 1) \in i = 1, ..., N_{masks}
+\end{aligned}
+$$
+
+Then continue to assign the physical parameter as the mean value of the mask $m^i$:
+
+$$
+\label{corelationmatrix}
+\begin{aligned}
+G_{model}(p) = \frac{1}{K_{G_{quasi}(p)}}\sum_{p = 1}^{N_{cells}} \rho_p \mathbb{I}(m_p^{G_{quasi}(p)} = 1)
+\end{aligned}
+$$
+
+ For example, in [](#onion_example) where the model has to travel through multiple Gaussians and we do not expect to have nested geological features. Given this prior knowledge we can set the $W_{ij}$ matrix directly with strict rules:
+
+|       | $W_1$ | $W_2$ | $W_3$ |
 | ---   | ---   | ---   | ---   |
-| $P_1$ | 1     |  0    | 0     |
-| $P_2$ | 0     |  1    | 0     |
-| $P_3$ | 0     |  0    | 1     |
-| $P_4$ | 0     |  0    | 1     |
+| $W_1$ | 1     |  0    | 0     |
+| $W_2$ | 0     |  1    | 0     |
+| $W_3$ | 0     |  0    | 1     |
+| $W_4$ | 0     |  0    | 1     |
 
-indicating that when we are in $P_3$ we use the neighbourhodd of $P_4$ to make the classification.
+indicating that when a cell is in $m^{i=3}$ we use the neighbourhood of $m^{i=4}$ to make the classification.
 
 ```{figure} ./figures/pgi_onion_example.png
 :height: 430px
@@ -195,6 +230,8 @@ Recovered models and their distributions a) the true model, b) Tikhonov result, 
 ```
 
 ## Segmentation-guided regularization
+
+Now that we have constructed a method to influence the regularization orientation and a second that identifies structures in the geophysical model we combine the two to develop an automated framework to promote more geologically similar models.
 
 ## Complex simulation
 
