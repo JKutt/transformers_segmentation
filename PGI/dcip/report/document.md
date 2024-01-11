@@ -153,12 +153,12 @@ Even not being trained on geological data, the masks from the pretrained model a
 ## Geological Classification
 
 Geological classification is done similar to the work in [Omni seg](http://arxiv.org/abs/2311.11666) that lifts 2D segmentations of a 3D object and projects the segmentation into a 3D space. Here we use simiar methods to draw geoogical structures in a 2D inversion model. 
-We let $m^i \in M_{segments} (i=1,...,n)$ and to eliminate the impact of overlapping masks, create a correlation matrix $C \in \R^{N_m \times N_m}$ using the intersection of unions formula in [](#correlationmatrix)
+We let $m^i \in M_{segments} (i=1,...,N_{segments})$ and to eliminate the impact of overlapping masks, create a correlation matrix $C \in \R^{N_m \times N_m}$ using the intersection of unions formula in [](#correlationmatrix)
 
 $$
 \label{corelationmatrix}
 \begin{aligned}
-C(i, j) = \frac{m^i \cap m^j}{m^i \cup m^j} \;\;\; \forall \;\; i,j = 1, ... , N_m
+C(i, j) = \frac{m^i \cap m^j}{m^i \cup m^j} \;\;\; \forall \;\; i,j = 1, ... , N_{segments}
 \end{aligned}
 $$
 
@@ -167,7 +167,7 @@ Which has index map $I_{maps}$. Now we will want to place bounds on the minimum 
 $$
 \label{corelationmatrix}
 \begin{aligned}
-v_k = \sum_{j=1}^{N_{sub}} \mathbb{I}(C_{sub}(k, j) > 0) \; \in \; k = 1, ...,N_{sub}
+v_i = \sum_{j=1}^{N_{sub}} \mathbb{I}(C_{sub}(i, j) > 0)
 \end{aligned}
 $$
 
@@ -180,12 +180,12 @@ We can then create patches $C_{ordered}$ which are ordered according to the vote
 | ...   |   ...   |   ...   | ... | ...   |
 | $W_n$ | $w_{n1}$  |  $w_{n2}$ | ... |$w_{nn}$ |
 
-This matrix is then used when making the geological classification. For each mask we generatte a probabiity denisty function $\mathcal{P}_n(m_n |\; W_{nj})$ for $j = 1,2, .., N_{masks}$ in a situated mask $n \in n = 1,2, .., N_{masks}$. Our weights $W_{nj}$ are the rows of $W_{ij}$. To create the quasi-geoogical classification vector $G_{quasi}(p)$ we use the argmax function:
+This matrix is then used when making the geological classification. For each mask we generatte a probabiity denisty function $\mathcal{P}(\; m^i |\; W^i\;)$ in a situated mask $i$. To create the quasi-geoogical classification vector $G_{quasi}(k)$ we use the argmax function:
 
 $$
 \label{corelationmatrix}
 \begin{aligned}
-G_{quasi}(p) = \argmax\left[\; \mathcal{P}_n(m_n(p) \;|\; W_{nj})\;\right] \; \in \; p = 1,.....N_{cells}
+G_{quasi}(k) = \argmax\left[\; \mathcal{P}(\;m^i \;|\; W^i\;)\;\right] \; \in \; k = 1,.....N_{cells}
 \end{aligned}
 $$
 
@@ -203,7 +203,7 @@ Then continue to assign the physical parameter as the mean value of the mask $m^
 $$
 \label{corelationmatrix}
 \begin{aligned}
-G_{model}(p) = \frac{1}{K_{G_{quasi}(p)}}\sum_{p = 1}^{N_{cells}} \rho_p \mathbb{I}(m_p^{G_{quasi}(p)} = 1)
+G_{model}(k) = \frac{1}{K_{G_{quasi}(k)}}\sum_{p = 1}^{N_{cells}} \rho_p \mathbb{I}(m_p^{G_{quasi}(k)} = 1)
 \end{aligned}
 $$
 

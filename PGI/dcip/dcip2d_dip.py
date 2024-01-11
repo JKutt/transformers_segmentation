@@ -829,14 +829,16 @@ class SamClassificationModel():
         mesh,
         kneighbors: int=20,
         segmentation_model_checkpoint: str=r"C:\Users\johnk\Documents\git\jresearch\PGI\dcip\sam_vit_h_4b8939.pth",
+        proportions_factor: float=1e-5,
     ):
         
         self.segmentation_model_checkpoint = segmentation_model_checkpoint
         self.mesh = mesh
         self.kneighbors = kneighbors
         self.indexpoint = np.zeros((mesh.nC, kneighbors + 1))
+        self.portions_factor = proportions_factor
 
-        # load segmentation network model
+        # load segmentation network model 
         sam = sam_model_registry["vit_h"](checkpoint=self.segmentation_model_checkpoint)
         # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # sam.to(device=device)
@@ -858,8 +860,8 @@ class SamClassificationModel():
             image_rgb = Image.fromarray(np.uint8(cm.jet(model_normalized.reshape(self.mesh.shape_cells, order='F'))*255))
             image_rgb = image_rgb.convert('RGB')
 
-            result = self.mask_generator.generate(np.asarray(image_rgb))
-
+            # get the segments
+            results = self.mask_generator.generate(np.asarray(image_rgb))
 
             # ---------------------------------------------------------------------------------------------
 
@@ -869,131 +871,96 @@ class SamClassificationModel():
 
             #
 
-            nlayers = len(result) - 1
+            nlayers = len(results)
 
             union_matrix = np.zeros((nlayers, nlayers))
-            mask_size_matrix = np.zeros((nlayers, nlayers))
+            votes = np.zeros(nlayers)
             for ii in range(nlayers):
                 for jj in range(nlayers):
-                    iou_score = calculate_iou(result[ii]['segmentation'], result[jj]['segmentation'])
+                    iou_score = calculate_iou(
+                        results[ii]['segmentation'],
+                        results[jj]['segmentation']
+                    )
                     union_matrix[ii, jj] = iou_score
-                    if iou_score > 0:
-                        mask_size_matrix[ii, jj] = np.where(result[jj]['segmentation'].flatten(order='F') == True)[0].shape[0]
-                    print("IoU score:", iou_score)
 
-            print(f'union matirx: \n {union_matrix}')
-            print(f'size matirx: \n {mask_size_matrix}')
+            # OK lets use the the union matrix as weights but deal with nested masks
+            portions_factor = self.portions_factor
+            for ii in range(nlayers):
+                mask_tally = 0
+                find_1 = False
+                for jj in range(nlayers - 1):
 
-            # ------------------------------------------------------------------------------------
+                    if union_matrix[ii, jj] == 1:
 
-            # modify the overlap matrix to assign the proper neighbors mask in the case of onions
+                        if union_matrix[ii, jj+1] < union_matrix[ii, jj] and union_matrix[ii, jj+1] != 0:
+
+                            mask_tally += 1
+                        else:
+
+                            union_matrix[ii, :jj] = union_matrix[ii, :jj] * portions_factor
+
+                        break
+
+                if union_matrix[ii, jj + 1] == 1:
+
+                    union_matrix[ii, :jj+1] = union_matrix[ii, :jj+1] * portions_factor
+
+                print(f'mask {ii} vote total: {mask_tally}')
+                votes[ii] = mask_tally
+                
+            print(votes)
+            print(union_matrix)
+
+            # ----------------------------------------------------------------------
+
+            # now that we have the votes lets contstruct the global weights matrix
+
+            # and assign the mask to each cell
 
             #
 
-            sub_union_matrix = union_matrix[1:, 1:].copy()
+            # find where we have votes
+            indices = np.where(votes == 1)
 
-            # calculate how many non zero in a row of our overlap matrix
-            for jj in range(sub_union_matrix.shape[0]):
+            diagonals_modify = indices[0][1:]
+            print(diagonals_modify)
 
-                if np.count_nonzero(sub_union_matrix[jj, :]) > 1:
+            weight_matrix = union_matrix.copy()
 
-                    mask_index = np.nonzero(sub_union_matrix[jj, :])
-                    print(mask_index[0][-1])
-                    # check which mask is larger
-                    if sub_union_matrix[jj, :].shape[0] > 2:
-                        if mask_index[0][-1] < mask_index[0][0]:
-                            sub_union_matrix[jj, mask_index[0][-1]] = 0
-                            sub_union_matrix[jj, mask_index[0][0]] = 1
-                        else:
-                            sub_union_matrix[jj, mask_index[0][-1]] = 1
-                            sub_union_matrix[jj, mask_index[0][0]] = 0
-                    else:
-                        if mask_size_matrix[jj, mask_index[0][-1] + 1] < mask_size_matrix[jj, mask_index[0][0] + 1]:
-                            sub_union_matrix[jj, mask_index[0][-1]] = 0
-                            sub_union_matrix[jj, mask_index[0][0]] = 1
-                        else:
-                            sub_union_matrix[jj, mask_index[0][-1]] = 1
-                            sub_union_matrix[jj, mask_index[0][0]] = 0
+            weight_matrix[diagonals_modify, diagonals_modify] = 0.0
 
-            print(f'sub union matirx: \n {sub_union_matrix}')
+            print(weight_matrix)
+            import random
+
+            outcomes = [0, 1, 2, 3, 4] # need to replace this with mask indicies np.arange(len(masks), 1)
+
+            # distribution = random.choices(outcomes, weight_matrix[-1, :], k=1)  # Change k to the number of samples you want
+            # print(distribution)
+
             # --------------------------------------------------------------------------------------
 
             # assign each cell a mask to assign it's neighbors
 
             #
 
-            hx, hy = self.mesh.shape_cells
-            x = np.arange(hx)
-            y = np.arange(hy)
-            xx, yy = np.meshgrid(x, y)
+            nlayers = len(results)
 
-            mask_locations = np.vstack([xx.flatten(), yy.flatten()])
+            # now lets get the values for each cell
+            physical_property = np.zeros(nlayers)
+            for ii in range(nlayers):
 
-            mask_assignment = np.zeros(mask_locations.shape[1])
+                idx = np.vstack(np.where(results[ii]['segmentation'].flatten(order='F') == True))[0]
 
-            for ii in range(mask_locations.shape[1]):
+                value = mcluster[idx].mean()
 
-                for jj in range(nlayers - 1):
+                physical_property[ii] = value
 
-                    idx = np.vstack(np.where(result[jj + 1]['segmentation'] == True))
+                print(f'mask {ii}: {1/np.exp(value)} ohm - m')
 
-                    point_set = idx.T
+        self.masks = results
+        self.weights_matrix = weight_matrix
 
-                    # print(point_set.shape, np.vstack(idx).shape, xx.shape)
-                    distances = np.sqrt(np.sum((point_set - mask_locations[:, ii].T)**2, axis=1))
-                    # print(jj, mask_assignment[:, ii].T, point_set[0, :])
-                    min_distance = np.min(distances)
-                    
-                    if min_distance == 0:
-                        mask_assignment[ii] = jj + 1
-
-            # ----------------------------------------------------------------------------------------
-
-            # now update the indexpoint matrix
-
-            #
-
-            background_idx = np.where(result[0]['segmentation'].flatten(order='F') == True)[0]
-
-            background_locations = mask_locations[:, background_idx]
-
-            background_indexneighbors = latin_hypercube_subsampling(background_idx, sam_model.kneighbors + 1)
-
-            for kk in range(mask_assignment.shape[0]):
-
-                # check union matrix for the correct mask
-                union_index = int(mask_assignment[kk] - 1)
-                print(union_index, sub_union_matrix.shape)
-                if union_index < 0:
-
-                    self.indexpoint[kk, :] = background_indexneighbors
-
-                else:
-                    print(sub_union_matrix[union_index, :])
-                    mask_select = np.nonzero(sub_union_matrix[union_index, :])[0][0] + 1
-
-                    idx = np.vstack(np.where(result[mask_select]['segmentation'].flatten(order='F') == True))[0]
-                    shape_idx = idx.shape[0]
-
-                    # if the mask is smaller than the user defined number of neighbors
-                    print(f'looking at shape of neighbours: {idx.shape} < {self.kneighbors + 1}')
-                    if idx.shape[0] < (self.kneighbors + 1):
-
-                        self.indexpoint[kk, :] = self.indexpoint[kk, 0]
-                        self.indexpoint[kk, -shape_idx:] = idx
-
-                    # otherwise assign the entire mask
-                    else:
-
-                        print(f"idx shape: {idx.shape} knei: {self.kneighbors} {shape_idx} {self.indexpoint.shape} {kk}")
-                        print(idx[:(self.kneighbors + 1)].shape, mask_locations.shape, mask_assignment.shape)
-                        # self.indexpoint[kk, :] = idx[:(self.kneighbors + 1)]
-                        self.indexpoint[kk, :] = latin_hypercube_subsampling(idx, sam_model.kneighbors + 1)
-
-            self.masks = result
-            self.mask_assignment = mask_assignment
-
-        return result
+        return results
     
     def predict(
 
@@ -1105,7 +1072,7 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
                     [np.sin(angle_radians), np.cos(angle_radians)]
                 ])
 
-                self.reg_dirs[mask_data] = [np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])] * self.mesh.nC
+                self.reg_dirs[mask_data] = [1 / rotation_matrix] * mask_data.sum()
             else:
                 raise ValueError("Not enough object pixels to determine orientation.")
 
@@ -1269,12 +1236,12 @@ def run():
         
         mtrue[actcore],
         relative_error=relative_measurement_error,
-        noise_floor=1e-4,
+        noise_floor=5e-3,
         force=True,
         add_noise=True,
 
     )
-
+    print(f"std: {dc_data.standard_deviation.mean()}")
     relative_error_list = (np.abs(dc_data.standard_deviation/dc_data.dobs))
     print(relative_error_list.min())
     print(relative_error_list.max())
@@ -1359,15 +1326,18 @@ def run():
     dike_dir_reg = np.logical_and(dike00,dike01)
 
     # reg model
-    # reg_model = model.copy()
+    reg_model = model.copy()
     
-    # reg_model[dike_dir_reg]=4
+    reg_model[dike_dir_reg]=4
 
-    # for ii in range(meshCore.nC):
+    cos = np.cos(140*np.pi / 180) * 2
+    sin = np.sin(140*np.pi / 180) * 2
 
-    #     if reg_model[actcore][ii] == 4:
+    for ii in range(meshCore.nC):
 
-    #         reg_cell_dirs[ii] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
+        if reg_model[actcore][ii] == 4:
+
+            reg_cell_dirs[ii] = np.array([[cos, -sin], [sin, cos],])
 
     # # reg_cell_dirs[dike] = np.array([[sqrt2, sqrt2], [sqrt2, sqrt2],])
     # segmentor = SamClassificationModel(
@@ -1381,12 +1351,12 @@ def run():
     #     ortho_check=False,
     #     segmentation_model=segmentor
     # )
-    # reg_mean = regularization.SmoothnessFullGradient(
-    #     meshCore, 
-    #     reg_dirs=reg_cell_dirs,
-    #     ortho_check=False,
-    #     # segmentation_model=segmentor
-    # )
+    reg_mean = regularization.SmoothnessFullGradient(
+        meshCore, 
+        reg_dirs=reg_cell_dirs,
+        ortho_check=False,
+        # segmentation_model=segmentor
+    )
 
     # reg_mean = GeologicalSegmentation(
     #     meshCore, 
@@ -1405,16 +1375,16 @@ def run():
     #     indActive=actcore
     # )
 
-    # Weighting
-    reg_mean = regularization.WeightedLeastSquares(
-        mesh, 
-        active_cells=actcore,
-        mapping=idenMap,
-        # reference_model=m0
-    )
-    reg_mean.alpha_s = 0.01
-    reg_mean.alpha_x = 100
-    reg_mean.alpha_y = 100
+    # # Weighting
+    # reg_mean = regularization.WeightedLeastSquares(
+    #     mesh, 
+    #     active_cells=actcore,
+    #     mapping=idenMap,
+    #     # reference_model=m0
+    # )
+    # reg_mean.alpha_s = 0.01
+    # reg_mean.alpha_x = 100
+    # reg_mean.alpha_y = 100
     # reg_mean.mrefInSmooth = True
     # reg_mean.approx_gradient = True
 
@@ -1461,7 +1431,7 @@ def run():
                                                 #  MrefInSmooth,
                                                 plot_iter_mref,
                                                 #  save_pgi,
-                                                #  update_Jacobi,
+                                                # update_Jacobi,
                                                 ])
 
     # Run!
