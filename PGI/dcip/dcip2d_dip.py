@@ -27,6 +27,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 import datetime
 import warnings
+import random
 
 # Python Version
 import sys
@@ -828,7 +829,7 @@ class SamClassificationModel():
         self,
         mesh,
         kneighbors: int=20,
-        segmentation_model_checkpoint: str=r"C:\Users\johnk\Documents\git\jresearch\PGI\dcip\sam_vit_h_4b8939.pth",
+        segmentation_model_checkpoint: str=r"/home/juanito/Documents/trained_models/sam_vit_h_4b8939.pth",
         proportions_factor: float=1e-5,
     ):
         
@@ -837,6 +838,7 @@ class SamClassificationModel():
         self.kneighbors = kneighbors
         self.indexpoint = np.zeros((mesh.nC, kneighbors + 1))
         self.portions_factor = proportions_factor
+        self.mask_assignment = None
 
         # load segmentation network model 
         sam = sam_model_registry["vit_h"](checkpoint=self.segmentation_model_checkpoint)
@@ -907,9 +909,6 @@ class SamClassificationModel():
 
                 print(f'mask {ii} vote total: {mask_tally}')
                 votes[ii] = mask_tally
-                
-            print(votes)
-            print(union_matrix)
 
             # ----------------------------------------------------------------------
 
@@ -930,32 +929,6 @@ class SamClassificationModel():
             weight_matrix[diagonals_modify, diagonals_modify] = 0.0
 
             print(weight_matrix)
-            import random
-
-            outcomes = [0, 1, 2, 3, 4] # need to replace this with mask indicies np.arange(len(masks), 1)
-
-            # distribution = random.choices(outcomes, weight_matrix[-1, :], k=1)  # Change k to the number of samples you want
-            # print(distribution)
-
-            # --------------------------------------------------------------------------------------
-
-            # assign each cell a mask to assign it's neighbors
-
-            #
-
-            nlayers = len(results)
-
-            # now lets get the values for each cell
-            physical_property = np.zeros(nlayers)
-            for ii in range(nlayers):
-
-                idx = np.vstack(np.where(results[ii]['segmentation'].flatten(order='F') == True))[0]
-
-                value = mcluster[idx].mean()
-
-                physical_property[ii] = value
-
-                print(f'mask {ii}: {1/np.exp(value)} ohm - m')
 
         self.masks = results
         self.weights_matrix = weight_matrix
@@ -970,34 +943,82 @@ class SamClassificationModel():
 
     ) -> np.ndarray:
 
-        # output quasi-geological model
-        geological_model = np.zeros(model.shape, dtype=float)
-        print('in predict!')
-        # loop through and take mean value of the assigned 
-        for ii in range(model.shape[0]):
+        # --------------------------------------------------------------------------------------
 
-            value = model[self.indexpoint[ii, :].astype(int)].mean()
-            # idx = (np.abs(gmm._means - value)).argmin()
-            geological_model[ii] = value # idx  # self.means_[idx]
-            # print(f"assigning value: {geological_model[ii]}")
+        # assign each cell a mask to assign it's neighbors
 
-        return geological_model
+        #
+
+        outcomes = np.arange(len(self.masks))
+
+        nlayers = len(self.masks)
+
+        # now lets get the values for each cell
+        physical_property = np.zeros(nlayers)
+        for ii in range(nlayers):
+
+            idx = np.vstack(np.where(self.masks[ii]['segmentation'].flatten(order='F') == True))[0]
+
+            value = model[idx].mean()
+
+            physical_property[ii] = value
+
+            print(f'mask {ii}: {1/np.exp(value)} ohm - m')
+
+        hx, hy = self.mesh.shape_cells
+        x = np.arange(hx)
+        y = np.arange(hy)
+        xx, yy = np.meshgrid(x, y)
+
+        mask_locations = np.vstack([xx.flatten(), yy.flatten()])
+
+        mask_assignment = np.zeros(mask_locations.shape[1], dtype=int)
+        quasi_geological_model = np.ones(mask_locations.shape[1]) * physical_property[0]
+
+        for ii in range(mask_locations.shape[1]):
+
+            for jj in range(1, nlayers):
+
+                idx = np.vstack(np.where(self.masks[jj]['segmentation'] == True))
+
+                point_set = idx.T
+
+                distances = np.sqrt(np.sum((point_set - mask_locations[:, ii].T)**2, axis=1))
+
+                min_distance = np.min(distances)
+                
+                if min_distance == 0:
+                    mask_assignment[ii] = random.choices(outcomes, self.weights_matrix[jj, :], k=1)[0]
+                    quasi_geological_model[ii] = physical_property[mask_assignment[ii]]
+
+        # plt.hist(mask_assignment)
+
+        self.mask_assignment = mask_assignment
+
+        return quasi_geological_model
 
     def query_neighbours(
             
             self, 
             cell_number: int=0
     
-    ):
+    ) -> np.ndarray:
 
         # check that cell number is in bounds
         try:
             
-            return self.mesh.gridCC[self.indexpoint[cell_number, :].astype(int), :]
+            return np.vstack(np.where(self.masks[self.mask_assignment[cell_number]]['segmentation'] == True))
         
         except ValueError as e:
 
             raise ValueError(f'cell number is not within bounds: {e}')
+        
+    def update_weights_matrix(
+            self,
+            new_matrix: np.ndarray,
+    ) -> None:
+        
+        self.weights_matrix = new_matrix
 
 
 class GeologicalSegmentation(regularization.SmoothnessFullGradient):
