@@ -12,6 +12,34 @@ import random
 from scipy.ndimage import laplace
 
 
+def latin_hypercube_subsampling(samples, n_subsamples):
+    """
+    Perform Latin Hypercube subsampling on the given set of samples.
+
+    Parameters:
+    - samples (numpy.ndarray): Input samples of shape (n, num_dimensions).
+    - n_subsamples (int): Number of subsamples to generate.
+
+    Returns:
+    - numpy.ndarray: Subsamples selected using Latin Hypercube Sampling, with shape (n_subsamples, num_dimensions).
+    """
+    n = samples.shape[0]
+
+    # Generate random indices for each dimension
+    random_indices = np.random.permutation(n)
+
+    # Sort the indices along each dimension
+    sorted_indices = np.argsort(random_indices)
+
+    # Take the first n_subsamples indices along each dimension
+    subsample_indices = sorted_indices[:n_subsamples]
+
+    # Use the selected indices to extract the subsamples
+    subsamples = samples[subsample_indices]
+
+    return subsamples
+
+
 def minimum_curvature(
         input_matrix:np.ndarray, 
         num_iterations:int=100, 

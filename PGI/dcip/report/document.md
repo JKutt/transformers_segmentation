@@ -126,16 +126,15 @@ We can see That if we can supply helpful information to the regularization, the 
 
 Commonly Convolutional Neural Networks are used for image segmentation but can have an inductive bias due to kernel sizes used for encoding spatial neighbours. Transformers benifit from having the notion of context derived from the entire image, not limited to kernel sizes. This notion of context allows the network to define a heatmap for every pixel of correlated cells.
 
-- show example of the heatmaps
 ```{figure} ./figures/heatmap.png
 :height: 230px
-:width: 575px
+:width: 595px
 :name: heatmap
 :alt: heatmap results
 :align: center
 
 
-Heat maps examples for pixels in the image.
+Heat maps examples for pixels in an image ([](https://doi.org/10.48550/arXiv.2005.12872)).
 ```
 
 Using the transformer we can input the geophysical model with physical parameter $\rho$. For the purpose of this study, our physical parameter is resistivity. The geophyscial model is a vector of cells $\mathbf{\Rho} = [\rho_1, \rho_2, ..., \rho_n]$. By using the SAM model [](10.48550/ARXIV.2306.11730) we can represent the mask generation as:
@@ -149,6 +148,17 @@ $$
 
 Even not being trained on geological data, the masks from the pretrained model are quite evective at identifying structure.
 - show images of the segmentations
+
+```{figure} ./figures/geosegments.png
+:height: 500px
+:width: 500px
+:name: segments
+:alt: segment results
+:align: center
+
+
+Segmentations of the geophysical model.
+```
 
 ## Geological Classification
 
@@ -232,6 +242,17 @@ Recovered models and their distributions a) the true model, b) Tikhonov result, 
 ## Segmentation-guided regularization
 
 Now that we have constructed a method to influence the regularization orientation and a second that identifies structures in the geophysical model we combine the two to develop an automated framework to promote more geologically similar models.
+
+```{figure} ./figures/frame-geoseg.png
+:height: 450px
+:width: 500px
+:name: framework
+:alt: geoseg framework
+:align: center
+
+
+Segmentation-guided regularization frame work.
+```
 
 ## Complex simulation
 
