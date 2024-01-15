@@ -195,11 +195,11 @@ This matrix is then used when making the geological classification. For each mas
 $$
 \label{corelationmatrix}
 \begin{aligned}
-G_{quasi}(k) = \argmax\left[\; \mathcal{P}(\;m^i \;|\; W^i\;)\;\right] \; \in \; k = 1,.....N_{cells}
+G_{quasi}(k) = \argmax\left[\; \mathcal{P}(\;m^n \;|\; W^n\;)\;\right] \; \in \; k = 1,.....N_{cells}
 \end{aligned}
 $$
 
-Here $n$ is the deepest mask that cell $p$ is situated. Now that each cell has the properly assigned mask, we can relate back to the physical property by taking the mean value of the physical parameters situated inside a mask. Our quasi-geological model $G_{model}$ with physical with physical parameter $\rho$ has cells that are defined by the values contained inside a mask. in this instance, we will take the mean value. First we find the total number of cells inside a mask:
+Here $n$ is the deepest mask that cell $k$ is situated. Now that each cell has the properly assigned mask, we can relate back to the physical property by taking the mean value of the physical parameters situated inside a mask. Our quasi-geological model $G_{model}$ with physical with physical parameter $\rho$ has cells that are defined by the values contained inside a mask. in this instance, we will take the mean value. First we find the total number of cells inside a mask:
 
 $$
 \label{masktotal}
@@ -241,7 +241,7 @@ Recovered models and their distributions a) the true model, b) Tikhonov result, 
 
 ## Segmentation-guided regularization
 
-Now that we have constructed a method to influence the regularization orientation and a second that identifies structures in the geophysical model we combine the two to develop an automated framework to promote more geologically similar models.
+Now that we have constructed a method to influence the regularization orientation and a second that identifies structures in the geophysical model we combine the two to develop an automated framework to promote more geologically similar models. [](#framework) illustrates how the segmentation-guided regularization is integrated into the geophysical inversion. At each iteration the geophyical model is passed through the segmentation model which given prior geological information will create a weights matrix for classification. The segmented mask will then define how to regularize the objects in geophysical model by updating the regularization gradient information. Lastly, we do a petrophysical characterization, update the prior/reference model and continue to update.
 
 ```{figure} ./figures/frame-geoseg.png
 :height: 450px
