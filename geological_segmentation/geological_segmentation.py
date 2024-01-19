@@ -1,7 +1,7 @@
 from SimPEG import regularization
 import discretize
 import numpy as np
-from segment_anything import sam_model_registry
+from segment_anything import sam_model_registry, SamPredictor
 from segment_anything import SamAutomaticMaskGenerator
 from PIL import Image
 from scipy import stats
@@ -145,12 +145,13 @@ class SamClassificationModel():
         self.indexpoint = np.zeros((mesh.nC, kneighbors + 1))
         self.portions_factor = proportions_factor
         self.mask_assignment = None
+        self.segmentations = None
 
         # load segmentation network model 
         sam = sam_model_registry["vit_h"](checkpoint=self.segmentation_model_checkpoint)
         # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # sam.to(device=device)
-        self.mask_generator = SamAutomaticMaskGenerator(sam)
+        self.segment_model = sam
 
     def fit(
             self, 
@@ -180,7 +181,8 @@ class SamClassificationModel():
             image_rgb = image_rgb.convert('RGB')
 
             # get the segments
-            results = self.mask_generator.generate(np.asarray(image_rgb))
+            mask_generator = SamAutomaticMaskGenerator(self.segment_model)
+            results = mask_generator.generate(np.asarray(image_rgb))
 
             # ---------------------------------------------------------------------------------------------
 
@@ -247,7 +249,7 @@ class SamClassificationModel():
 
             print(weight_matrix)
 
-        self.masks = results
+        self.segmentations = results
         self.weights_matrix = weight_matrix
 
         return results
@@ -277,15 +279,15 @@ class SamClassificationModel():
 
         #
 
-        outcomes = np.arange(len(self.masks))
+        outcomes = np.arange(len(self.segmentations))
 
-        nlayers = len(self.masks)
+        nlayers = len(self.segmentations)
 
         # now lets get the values for each cell
         physical_property = np.zeros(nlayers)
         for ii in range(nlayers):
 
-            idx = np.vstack(np.where(self.masks[ii]['segmentation'].flatten(order='F') == True))[0]
+            idx = np.vstack(np.where(self.segmentations[ii]['segmentation'].flatten(order='F') == True))[0]
 
             value = model[idx].mean()
 
@@ -307,7 +309,7 @@ class SamClassificationModel():
 
             for jj in range(1, nlayers):
 
-                idx = np.vstack(np.where(self.masks[jj]['segmentation'] == True))
+                idx = np.vstack(np.where(self.segmentations[jj]['segmentation'] == True))
 
                 point_set = idx.T
 
@@ -324,7 +326,50 @@ class SamClassificationModel():
         self.mask_assignment = mask_assignment
 
         return quasi_geological_model
+   
+    def get_focused_mask(
+            self,
+            bound_box_id: int,
+            
+    ) -> tuple(np.ndarray, np.ndarray, np.ndarray):
+        
+        mask_predictor = SamPredictor(self.segment_model)
+        
+        return mask_predictor.predict(
+            box=self.segmentations[bound_box_id]['bbox'],
+            multimask_output=True
+        )
+    
+    def get_bound_box_indicies(
 
+            self,
+            id: int,
+
+    ) -> np.ndarray:
+        """
+            Returns a flattened array representing the bounding box indices of the specified segmentation.
+
+            Parameters:
+            - id (int): The identifier of the segmentation within the 'segmentations' attribute.
+
+            Returns:
+            np.ndarray: A flattened array where the indices corresponding to the bounding box of the
+                    specified segmentation are set to 1, and the rest are set to 0. The array is
+                    flattened in Fortran order ('F').
+        """
+        
+        y0 = self.segmentations[id]['bbox'][0]
+        x0 = self.segmentations[id]['bbox'][1]
+        x1 = x0 + self.segmentations[id]['bbox'][3]
+        y1 = y0 + self.segmentations[id]['bbox'][2]
+
+        # generate as sparse matrix when things get big
+        bbox = np.zeros(self.segmentations[id]['segmentation'].shape)
+
+        bbox[x0:x1, y0:y1] = 1
+
+        return bbox.flatten(order='F')
+    
     def query_neighbours(
             
             self, 
@@ -346,12 +391,18 @@ class SamClassificationModel():
         # check that cell number is in bounds
         try:
             
-            return np.vstack(np.where(self.masks[self.mask_assignment[cell_number]]['segmentation'] == True))
+            return np.vstack(
+                np.where(
+                    self.segmentations[
+                        self.mask_assignment[cell_number]
+                    ]['segmentation'] == True
+                )
+            )
         
         except ValueError as e:
 
             raise ValueError(f'cell number is not within bounds: {e}')
-        
+    
     def update_weights_matrix(
             self,
             new_matrix: np.ndarray,
@@ -371,13 +422,14 @@ class SamClassificationModel():
 class GeologicalSegmentation(regularization.SmoothnessFullGradient):
 
     def __init__(
-            self, 
-            mesh: discretize.TensorMesh, 
-            alphas: np.ndarray=None, 
-            reg_dirs: np.ndarray=None, 
-            ortho_check: bool=True,
-            segmentation_model: SamClassificationModel=None,
-            **kwargs
+        self, 
+        mesh: discretize.TensorMesh, 
+        alphas: np.ndarray=None, 
+        reg_dirs: np.ndarray=None, 
+        ortho_check: bool=True,
+        segmentation_model: SamClassificationModel=None,
+        method: str='bound_box',
+        **kwargs
     ):
         super().__init__(
             mesh=mesh, 
@@ -387,7 +439,7 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
             **kwargs)
 
         self.mesh = mesh
-        self.mask_assignment = None
+        self.method = method
         self.segmentation_model = segmentation_model
 
     
@@ -410,10 +462,10 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
 
         # loop through masks and assign rotations
         for ii in range(2, len(masks)):
-            mask_data = masks[ii]['segmentation']
-            mask_data = np.flip(mask_data)
+            seg_data = masks[ii]['segmentation']
+            seg_data = np.flip(seg_data)
             # Find the coordinates of the object pixels
-            object_pixels = np.argwhere(mask_data == 1)
+            object_pixels = np.argwhere(seg_data == 1)
 
             # Apply PPCA to determine orientation
             if len(object_pixels) > 1:
@@ -440,7 +492,13 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
                     [np.sin(angle_radians), np.cos(angle_radians)]
                 ])
 
-                self.reg_dirs[mask_data] = [1 / rotation_matrix] * mask_data.sum()
+                # check for rotation application method
+                if self.method == 'bound_box':
+                    bbox_mask = self.segmentation_model.get_bound_box_indicies(ii)
+                    self.reg_dirs[bbox_mask] = [1 / rotation_matrix] * bbox_mask.sum()
+                else:
+                    self.reg_dirs[seg_data] = [1 / rotation_matrix] * seg_data.sum()
+
             else:
                 raise ValueError("Not enough object pixels to determine orientation.")
 

@@ -791,9 +791,11 @@ def run():
     # divide domain by  45* fault at 100 m
     fault_function = lambda x, slope, shift: slope * x + shift
 
-    # Dike 45*
-    dike0 = mesh.gridCC[:,1] > fault_function(mesh.gridCC[:,0],1, 100)
-    dike1 = mesh.gridCC[:,1] < fault_function(mesh.gridCC[:,0],1, 175)
+    # Dike 30*
+    dike0 = mesh.gridCC[:,1] > fault_function(
+        mesh.gridCC[:,0], np.tan(30 * np.pi / 180), -75)
+    dike1 = mesh.gridCC[:,1] < fault_function(
+        mesh.gridCC[:,0], np.tan(30 * np.pi / 180), 0)
     dike = np.logical_and(dike0,dike1)
 
     model[dike]=4
@@ -849,7 +851,7 @@ def run():
     ax[0].set_aspect(1)
     plt.colorbar(mm[0], label=r'$\Omega$ m')
     ax[0].set_title('True model')
-
+    plt.show()
     xmin, xmax = -350., 350.
     ymin, ymax = 0., 0.
     zmin, zmax = 0, 0
@@ -917,7 +919,7 @@ def run():
         
         mtrue[actcore],
         relative_error=relative_measurement_error,
-        noise_floor=5e-3,
+        noise_floor=7e-3,
         force=True,
         add_noise=True,
 
@@ -945,6 +947,21 @@ def run():
 
     #
 
+    # lets just assign them to the dip structure
+    theta = -45 * np.pi / 180
+    reg_cell_dirs = [1 / np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)],]) for _ in range(meshCore.nC)]
+    # # reg model
+    # reg_model = model.copy()
+    # theta = 145 * np.pi / 180
+
+    # reg_model[mesh.cell_centers[:, 0] < 100] = 4
+
+    # for ii in range(meshCore.nC):
+
+    #     if reg_model[actcore][ii] == 4:
+
+    #         reg_cell_dirs[ii] = 1 / np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)],])
+
     dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
     # Create the regularization with GMM information
     idenMap = maps.IdentityMap(nP=m0.shape[0])
@@ -956,8 +973,8 @@ def run():
 
     reg_mean = geoseg.GeologicalSegmentation(
         meshCore, 
-        reg_dirs=None,
-        ortho_check=False,
+        reg_dirs=reg_cell_dirs,
+        ortho_check=True,
         segmentation_model=segmentor
     )
 

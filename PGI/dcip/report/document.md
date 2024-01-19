@@ -160,6 +160,17 @@ Even not being trained on geological data, the masks from the pretrained model a
 Segmentations of the geophysical model.
 ```
 
+```{figure} ./figures/geosegments_dip.png
+:height: 500px
+:width: 500px
+:name: segments_dip
+:alt: segment dip results
+:align: center
+
+
+Segmentations of the geophysical model.
+```
+
 ## Geological Classification
 
 Geological classification is done similar to the work in [Omni seg](http://arxiv.org/abs/2311.11666) that lifts 2D segmentations of a 3D object and projects the segmentation into a 3D space. Here we use simiar methods to draw geoogical structures in a 2D inversion model. 
@@ -252,6 +263,17 @@ Now that we have constructed a method to influence the regularization orientatio
 
 
 Segmentation-guided regularization frame work.
+```
+
+```{figure} ./figures/geosegments_dip_bbox.png
+:height: 250px
+:width: 500px
+:name: bbox
+:alt: geoseg bound box
+:align: center
+
+
+Bound box example.
 ```
 
 ## Complex simulation
