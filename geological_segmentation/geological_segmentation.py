@@ -134,15 +134,12 @@ class SamClassificationModel():
     def __init__(
         self,
         mesh,
-        kneighbors: int=20,
         segmentation_model_checkpoint: str=r"/home/juanito/Documents/trained_models/sam_vit_h_4b8939.pth",
         proportions_factor: float=1e-5,
     ):
         
         self.segmentation_model_checkpoint = segmentation_model_checkpoint
         self.mesh = mesh
-        self.kneighbors = kneighbors
-        self.indexpoint = np.zeros((mesh.nC, kneighbors + 1))
         self.portions_factor = proportions_factor
         self.mask_assignment = None
         self.segmentations = None
@@ -331,14 +328,14 @@ class SamClassificationModel():
             self,
             bound_box_id: int,
             
-    ) -> tuple(np.ndarray, np.ndarray, np.ndarray):
+    ) -> tuple:
         
         mask_predictor = SamPredictor(self.segment_model)
         
-        return mask_predictor.predict(
+        return (mask_predictor.predict(
             box=self.segmentations[bound_box_id]['bbox'],
             multimask_output=True
-        )
+        ))
     
     def get_bound_box_indicies(
 
