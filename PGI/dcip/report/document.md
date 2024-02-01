@@ -249,6 +249,7 @@ indicating that when a cell is in $m^{i=3}$ we use the neighbourhood of $m^{i=4}
 
 Recovered models and their distributions a) the true model, b) Tikhonov result, c) PGI result d) PGI with geological segmentation used for the classification.
 ```
+ADD STUFF ABOUT FILTERING MASKS
 
 ## Segmentation-guided regularization
 
@@ -265,6 +266,28 @@ Now that we have constructed a method to influence the regularization orientatio
 Segmentation-guided regularization frame work.
 ```
 
+```{figure} ./figures/geoseg-rot-phase1.png
+:height: 500px
+:width: 500px
+:name: bbox
+:alt: geoseg bound box
+:align: center
+
+
+Segmenation example.
+```
+
+```{figure} ./figures/geological_classification-gsr.png
+:height: 250px
+:width: 500px
+:name: bbox
+:alt: geoseg bound box
+:align: center
+
+
+Geological classification example.
+```
+
 ```{figure} ./figures/geosegments_dip_bbox.png
 :height: 250px
 :width: 500px
@@ -275,7 +298,5 @@ Segmentation-guided regularization frame work.
 
 Bound box example.
 ```
-
-## Complex simulation
 
 ## Conclusions
