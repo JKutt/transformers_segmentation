@@ -201,6 +201,18 @@ class SamClassificationModel():
                     )
                     union_matrix[ii, jj] = iou_score
 
+            # check mask filter option
+            if True:
+                # find the background and isolated objects
+                background_index = np.where((union_matrix[:, 0] == 1) | (union_matrix[:, 0] == 0))
+
+                filtered_masks = [ results[seg] for seg in background_index[0]]
+                filtered_union = union_matrix[background_index[0], :]
+                filtered_union = filtered_union[:, background_index[0]]
+                results = filtered_masks
+                union_matrix = filtered_union
+                nlayers = len(results)
+
             # OK lets use the the union matrix as weights but deal with nested masks
             portions_factor = self.portions_factor
             for ii in range(nlayers):
@@ -248,6 +260,7 @@ class SamClassificationModel():
 
         self.segmentations = results
         self.weights_matrix = weight_matrix
+        self.union_matrix = union_matrix
 
         return results
     
