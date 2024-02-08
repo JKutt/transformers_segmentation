@@ -497,17 +497,68 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
                 angle_radians = angle_degrees * np.pi / 180
 
                 # Create the 2x2 rotation matrix
-                rotation_matrix = np.array([
-                    [np.cos(angle_radians), -np.sin(angle_radians)],
-                    [np.sin(angle_radians), np.cos(angle_radians)]
-                ])
+                # rotation_matrix = np.array([
+                #     [np.cos(angle_radians), -np.sin(angle_radians)],
+                #     [np.sin(angle_radians), np.cos(angle_radians)]
+                # ])
+                sqrt2 = np.sqrt(2)
+                rotation_matrix = 1 / np.array([[sqrt2, sqrt2], [sqrt2, -sqrt2],])
 
                 # check for rotation application method
                 if self.method == 'bound_box':
                     bbox_mask = self.segmentation_model.get_bound_box_indicies(ii)
-                    self.reg_dirs[bbox_mask] = [1 / rotation_matrix] * bbox_mask.sum()
+                    reg_dirs[bbox_mask] = [rotation_matrix] * int(bbox_mask.sum())
                 else:
-                    self.reg_dirs[seg_data] = [1 / rotation_matrix] * seg_data.sum()
+                    reg_dirs[seg_data] = [rotation_matrix] * seg_data.sum()
+
+                # now do the alphas
+                alphas = np.ones((self.mesh.n_cells, self.mesh.dim))
+                alphas[bbox_mask] = [125, 25]
+                anis_alpha = alphas
+                mesh = self.mesh
+                n_active_cells = self.regularization_mesh.n_cells
+                if reg_dirs.shape == (mesh.dim, mesh.dim):
+                    reg_dirs = np.tile(reg_dirs, (mesh.n_cells, 1, 1))
+                if reg_dirs.shape[0] != mesh.n_cells:
+                    # check if I need to expand from active cells to all cells (needed for discretize)
+                    if (
+                        reg_dirs.shape[0] == n_active_cells
+                        and self.active_cells is not None
+                    ):
+                        reg_dirs_temp = np.zeros((mesh.n_cells, mesh.dim, mesh.dim))
+                        reg_dirs_temp[self.active_cells] = reg_dirs
+                        reg_dirs = reg_dirs_temp
+                    else:
+                        raise IndexError(
+                            f"`reg_dirs` first dimension, {reg_dirs.shape[0]}, must be either number "
+                            f"of active cells {mesh.n_cells}, or the number of mesh cells {mesh.n_cells}. "
+                        )
+
+                # create a stack of matrices of dir @ alphas @ dir.T
+                anis_alpha = np.einsum("ink,ik,imk->inm", reg_dirs, anis_alpha, reg_dirs)
+                # Then select the upper diagonal components for input to discretize
+                if mesh.dim == 2:
+                    anis_alpha = np.stack(
+                        (
+                            anis_alpha[..., 0, 0],
+                            anis_alpha[..., 1, 1],
+                            anis_alpha[..., 0, 1],
+                        ),
+                        axis=-1,
+                    )
+                elif mesh.dim == 3:
+                    anis_alpha = np.stack(
+                        (
+                            anis_alpha[..., 0, 0],
+                            anis_alpha[..., 1, 1],
+                            anis_alpha[..., 2, 2],
+                            anis_alpha[..., 0, 1],
+                            anis_alpha[..., 0, 2],
+                            anis_alpha[..., 1, 2],
+                        ),
+                        axis=-1,
+                    )
+                self._anis_alpha = anis_alpha
 
             else:
                 raise ValueError("Not enough object pixels to determine orientation.")
