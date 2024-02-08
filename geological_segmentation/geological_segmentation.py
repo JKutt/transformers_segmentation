@@ -201,17 +201,17 @@ class SamClassificationModel():
                     )
                     union_matrix[ii, jj] = iou_score
 
-            # check mask filter option
-            if True:
-                # find the background and isolated objects
-                background_index = np.where((union_matrix[:, 0] == 1) | (union_matrix[:, 0] == 0))
+            # # check mask filter option
+            # if True:
+            #     # find the background and isolated objects
+            #     background_index = np.where((union_matrix[:, 0] == 1) | (union_matrix[:, 0] == 0))
 
-                filtered_masks = [ results[seg] for seg in background_index[0]]
-                filtered_union = union_matrix[background_index[0], :]
-                filtered_union = filtered_union[:, background_index[0]]
-                results = filtered_masks
-                union_matrix = filtered_union
-                nlayers = len(results)
+            #     filtered_masks = [ results[seg] for seg in background_index[0]]
+            #     filtered_union = union_matrix[background_index[0], :]
+            #     filtered_union = filtered_union[:, background_index[0]]
+            #     results = filtered_masks
+            #     union_matrix = filtered_union
+            #     nlayers = len(results)
 
             # OK lets use the the union matrix as weights but deal with nested masks
             portions_factor = self.portions_factor
@@ -471,7 +471,7 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
         masks = self.segmentation_model.fit(xc)
 
         # loop through masks and assign rotations
-        for ii in range(2, len(masks)):
+        for ii in range(1, len(masks)):
             seg_data = masks[ii]['segmentation']
             seg_data = np.flip(seg_data)
             # Find the coordinates of the object pixels
