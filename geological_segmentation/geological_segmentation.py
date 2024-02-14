@@ -1,4 +1,5 @@
 from SimPEG import regularization
+from SimPEG.utils.code_utils import validate_ndarray_with_shape
 import discretize
 import numpy as np
 from segment_anything import sam_model_registry, SamPredictor
@@ -368,9 +369,11 @@ class SamClassificationModel():
                     flattened in Fortran order ('F').
         """
         
+        a = 0
+        b = self.segmentations[id]['bbox'][0] - (self.segmentations[id]['bbox'][2] // 2)
         y0 = self.segmentations[id]['bbox'][0]
-        x0 = self.segmentations[id]['bbox'][1]
-        x1 = x0 + self.segmentations[id]['bbox'][3]
+        x0 = self.segmentations[id]['bbox'][1] - b
+        x1 = x0 + self.segmentations[id]['bbox'][3] + b
         y1 = y0 + self.segmentations[id]['bbox'][2]
 
         # generate as sparse matrix when things get big
@@ -501,19 +504,34 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
                 #     [np.cos(angle_radians), -np.sin(angle_radians)],
                 #     [np.sin(angle_radians), np.cos(angle_radians)]
                 # ])
+                reg_dirs = [np.identity(2) for _ in range(self.mesh.nC)]
                 sqrt2 = np.sqrt(2)
                 rotation_matrix = 1 / np.array([[sqrt2, sqrt2], [sqrt2, -sqrt2],])
-
+                alphas = np.ones((self.mesh.n_cells, self.mesh.dim))
                 # check for rotation application method
                 if self.method == 'bound_box':
                     bbox_mask = self.segmentation_model.get_bound_box_indicies(ii)
-                    reg_dirs[bbox_mask] = [rotation_matrix] * int(bbox_mask.sum())
+                    for ii in range(self.mesh.nC):
+
+                        if bbox_mask[ii] == 1:
+                            print('adjusting')
+                            # reg_cell_dirs[ii] = np.array([[cos, -sin], [sin, cos],])
+                            reg_dirs[ii] = rotation_matrix
+                            alphas[ii] = [150, 25]
+#         alphas[ii] = [150, 25]
+                    # reg_dirs[bbox_mask] = [rotation_matrix] * int(bbox_mask.sum())
                 else:
                     reg_dirs[seg_data] = [rotation_matrix] * seg_data.sum()
 
+                reg_dirs = validate_ndarray_with_shape(
+                    "reg_dirs",
+                    reg_dirs,
+                    shape=[(self.mesh.dim, self.mesh.dim), ("*", self.mesh.dim, self.mesh.dim)],
+                    dtype=float,
+                )
                 # now do the alphas
-                alphas = np.ones((self.mesh.n_cells, self.mesh.dim))
-                alphas[bbox_mask] = [125, 25]
+                # alphas = np.ones((self.mesh.n_cells, self.mesh.dim))
+                # alphas[bbox_mask] = [125, 25]
                 anis_alpha = alphas
                 mesh = self.mesh
                 n_active_cells = self.regularization_mesh.n_cells
