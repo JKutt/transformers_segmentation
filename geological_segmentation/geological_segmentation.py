@@ -165,8 +165,7 @@ class SamClassificationModel():
             Returns:
             list: list of dictionaries for each segment.
 
-        """
-
+    """
         if model is None:
 
             raise ValueError('need a model')
@@ -440,7 +439,6 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
         alphas: np.ndarray=None, 
         reg_dirs: np.ndarray=None, 
         ortho_check: bool=True,
-        segmentation_model: SamClassificationModel=None,
         method: str='bound_box',
         **kwargs
     ):
@@ -453,8 +451,6 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
 
         self.mesh = mesh
         self.method = method
-        self.segmentation_model = segmentation_model
-
     
     def deriv(self, m):
         m_d = self.mapping.deriv(self._delta_m(m))
@@ -469,115 +465,115 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
         return grad.flatten(order='F')
 
     
-    def update_gradients(self, xc):
+#     def update_gradients(self, xc):
 
-        masks = self.segmentation_model.fit(xc)
+#         masks = self.segmentation_model.fit(xc)
 
-        # loop through masks and assign rotations
-        for ii in range(1, len(masks)):
-            seg_data = masks[ii]['segmentation']
-            seg_data = np.flip(seg_data)
-            # Find the coordinates of the object pixels
-            object_pixels = np.argwhere(seg_data == 1)
+#         # loop through masks and assign rotations
+#         for ii in range(1, len(masks)):
+#             seg_data = masks[ii]['segmentation']
+#             seg_data = np.flip(seg_data)
+#             # Find the coordinates of the object pixels
+#             object_pixels = np.argwhere(seg_data == 1)
 
-            # Apply PPCA to determine orientation
-            if len(object_pixels) > 1:
-                # Standardize the data
-                scaler = StandardScaler()
-                object_pixels_std = scaler.fit_transform(object_pixels)
+#             # Apply PPCA to determine orientation
+#             if len(object_pixels) > 1:
+#                 # Standardize the data
+#                 scaler = StandardScaler()
+#                 object_pixels_std = scaler.fit_transform(object_pixels)
 
-                # Apply PPCA
-                pca = PCA(n_components=2)
-                pca.fit(object_pixels_std)
+#                 # Apply PPCA
+#                 pca = PCA(n_components=2)
+#                 pca.fit(object_pixels_std)
 
-                # The first principal component (eigenvector) will represent the orientation
-                orientation_vector = pca.components_[0]
+#                 # The first principal component (eigenvector) will represent the orientation
+#                 orientation_vector = pca.components_[0]
 
-                # Compute the angle of the orientation vector (in degrees)
-                angle_degrees = np.arctan2(orientation_vector[1], orientation_vector[0]) * 180 / np.pi
+#                 # Compute the angle of the orientation vector (in degrees)
+#                 angle_degrees = np.arctan2(orientation_vector[1], orientation_vector[0]) * 180 / np.pi
 
-                print(f"Orientation angle (degrees): {angle_degrees}")
-                angle_radians = angle_degrees * np.pi / 180
+#                 print(f"Orientation angle (degrees): {angle_degrees}")
+#                 angle_radians = angle_degrees * np.pi / 180
 
-                # Create the 2x2 rotation matrix
-                # rotation_matrix = np.array([
-                #     [np.cos(angle_radians), -np.sin(angle_radians)],
-                #     [np.sin(angle_radians), np.cos(angle_radians)]
-                # ])
-                reg_dirs = [np.identity(2) for _ in range(self.mesh.nC)]
-                sqrt2 = np.sqrt(2)
-                rotation_matrix = 1 / np.array([[sqrt2, sqrt2], [sqrt2, -sqrt2],])
-                alphas = np.ones((self.mesh.n_cells, self.mesh.dim))
-                # check for rotation application method
-                if self.method == 'bound_box':
-                    bbox_mask = self.segmentation_model.get_bound_box_indicies(ii)
-                    for ii in range(self.mesh.nC):
+#                 # Create the 2x2 rotation matrix
+#                 # rotation_matrix = np.array([
+#                 #     [np.cos(angle_radians), -np.sin(angle_radians)],
+#                 #     [np.sin(angle_radians), np.cos(angle_radians)]
+#                 # ])
+#                 reg_dirs = [np.identity(2) for _ in range(self.mesh.nC)]
+#                 sqrt2 = np.sqrt(2)
+#                 rotation_matrix = 1 / np.array([[sqrt2, -sqrt2], [-sqrt2, -sqrt2],])
+#                 alphas = np.ones((self.mesh.n_cells, self.mesh.dim))
+#                 # check for rotation application method
+#                 if self.method == 'bound_box':
+#                     bbox_mask = self.segmentation_model.get_bound_box_indicies(ii)
+#                     for ii in range(self.mesh.nC):
 
-                        if bbox_mask[ii] == 1:
-                            print('adjusting')
-                            # reg_cell_dirs[ii] = np.array([[cos, -sin], [sin, cos],])
-                            reg_dirs[ii] = rotation_matrix
-                            alphas[ii] = [150, 25]
-#         alphas[ii] = [150, 25]
-                    # reg_dirs[bbox_mask] = [rotation_matrix] * int(bbox_mask.sum())
-                else:
-                    reg_dirs[seg_data] = [rotation_matrix] * seg_data.sum()
+#                         if bbox_mask[ii] == 1:
+#                             print('adjusting')
+#                             # reg_cell_dirs[ii] = np.array([[cos, -sin], [sin, cos],])
+#                             reg_dirs[ii] = rotation_matrix
+#                             alphas[ii] = [150, 25]
+# #         alphas[ii] = [150, 25]
+#                     # reg_dirs[bbox_mask] = [rotation_matrix] * int(bbox_mask.sum())
+#                 else:
+#                     reg_dirs[seg_data] = [rotation_matrix] * seg_data.sum()
 
-                reg_dirs = validate_ndarray_with_shape(
-                    "reg_dirs",
-                    reg_dirs,
-                    shape=[(self.mesh.dim, self.mesh.dim), ("*", self.mesh.dim, self.mesh.dim)],
-                    dtype=float,
-                )
-                # now do the alphas
-                # alphas = np.ones((self.mesh.n_cells, self.mesh.dim))
-                # alphas[bbox_mask] = [125, 25]
-                anis_alpha = alphas
-                mesh = self.mesh
-                n_active_cells = self.regularization_mesh.n_cells
-                if reg_dirs.shape == (mesh.dim, mesh.dim):
-                    reg_dirs = np.tile(reg_dirs, (mesh.n_cells, 1, 1))
-                if reg_dirs.shape[0] != mesh.n_cells:
-                    # check if I need to expand from active cells to all cells (needed for discretize)
-                    if (
-                        reg_dirs.shape[0] == n_active_cells
-                        and self.active_cells is not None
-                    ):
-                        reg_dirs_temp = np.zeros((mesh.n_cells, mesh.dim, mesh.dim))
-                        reg_dirs_temp[self.active_cells] = reg_dirs
-                        reg_dirs = reg_dirs_temp
-                    else:
-                        raise IndexError(
-                            f"`reg_dirs` first dimension, {reg_dirs.shape[0]}, must be either number "
-                            f"of active cells {mesh.n_cells}, or the number of mesh cells {mesh.n_cells}. "
-                        )
+#                 reg_dirs = validate_ndarray_with_shape(
+#                     "reg_dirs",
+#                     reg_dirs,
+#                     shape=[(self.mesh.dim, self.mesh.dim), ("*", self.mesh.dim, self.mesh.dim)],
+#                     dtype=float,
+#                 )
+#                 # now do the alphas
+#                 # alphas = np.ones((self.mesh.n_cells, self.mesh.dim))
+#                 # alphas[bbox_mask] = [125, 25]
+#                 anis_alpha = alphas
+#                 mesh = self.mesh
+#                 n_active_cells = self.regularization_mesh.n_cells
+#                 if reg_dirs.shape == (mesh.dim, mesh.dim):
+#                     reg_dirs = np.tile(reg_dirs, (mesh.n_cells, 1, 1))
+#                 if reg_dirs.shape[0] != mesh.n_cells:
+#                     # check if I need to expand from active cells to all cells (needed for discretize)
+#                     if (
+#                         reg_dirs.shape[0] == n_active_cells
+#                         and self.active_cells is not None
+#                     ):
+#                         reg_dirs_temp = np.zeros((mesh.n_cells, mesh.dim, mesh.dim))
+#                         reg_dirs_temp[self.active_cells] = reg_dirs
+#                         reg_dirs = reg_dirs_temp
+#                     else:
+#                         raise IndexError(
+#                             f"`reg_dirs` first dimension, {reg_dirs.shape[0]}, must be either number "
+#                             f"of active cells {mesh.n_cells}, or the number of mesh cells {mesh.n_cells}. "
+#                         )
 
-                # create a stack of matrices of dir @ alphas @ dir.T
-                anis_alpha = np.einsum("ink,ik,imk->inm", reg_dirs, anis_alpha, reg_dirs)
-                # Then select the upper diagonal components for input to discretize
-                if mesh.dim == 2:
-                    anis_alpha = np.stack(
-                        (
-                            anis_alpha[..., 0, 0],
-                            anis_alpha[..., 1, 1],
-                            anis_alpha[..., 0, 1],
-                        ),
-                        axis=-1,
-                    )
-                elif mesh.dim == 3:
-                    anis_alpha = np.stack(
-                        (
-                            anis_alpha[..., 0, 0],
-                            anis_alpha[..., 1, 1],
-                            anis_alpha[..., 2, 2],
-                            anis_alpha[..., 0, 1],
-                            anis_alpha[..., 0, 2],
-                            anis_alpha[..., 1, 2],
-                        ),
-                        axis=-1,
-                    )
-                self._anis_alpha = anis_alpha
+#                 # create a stack of matrices of dir @ alphas @ dir.T
+#                 anis_alpha = np.einsum("ink,ik,imk->inm", reg_dirs, anis_alpha, reg_dirs)
+#                 # Then select the upper diagonal components for input to discretize
+#                 if mesh.dim == 2:
+#                     anis_alpha = np.stack(
+#                         (
+#                             anis_alpha[..., 0, 0],
+#                             anis_alpha[..., 1, 1],
+#                             anis_alpha[..., 0, 1],
+#                         ),
+#                         axis=-1,
+#                     )
+#                 elif mesh.dim == 3:
+#                     anis_alpha = np.stack(
+#                         (
+#                             anis_alpha[..., 0, 0],
+#                             anis_alpha[..., 1, 1],
+#                             anis_alpha[..., 2, 2],
+#                             anis_alpha[..., 0, 1],
+#                             anis_alpha[..., 0, 2],
+#                             anis_alpha[..., 1, 2],
+#                         ),
+#                         axis=-1,
+#                     )
+#                 self._anis_alpha = anis_alpha
 
-            else:
-                raise ValueError("Not enough object pixels to determine orientation.")
+#             else:
+#                 raise ValueError("Not enough object pixels to determine orientation.")
 
