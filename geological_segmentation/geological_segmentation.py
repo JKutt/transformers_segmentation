@@ -368,12 +368,12 @@ class SamClassificationModel():
                     flattened in Fortran order ('F').
         """
         
-        a = 0
-        b = self.segmentations[id]['bbox'][0] - (self.segmentations[id]['bbox'][2] // 2)
+        a = 5
+        b = 10 #self.segmentations[id]['bbox'][0] - (self.segmentations[id]['bbox'][2] // 2)
         y0 = self.segmentations[id]['bbox'][0]
         x0 = self.segmentations[id]['bbox'][1] - b
-        x1 = x0 + self.segmentations[id]['bbox'][3] + b
-        y1 = y0 + self.segmentations[id]['bbox'][2]
+        x1 = x0 + self.segmentations[id]['bbox'][3] + (3 * b)
+        y1 = y0 + self.segmentations[id]['bbox'][2] + a
 
         # generate as sparse matrix when things get big
         bbox = np.zeros(self.segmentations[id]['segmentation'].shape)
