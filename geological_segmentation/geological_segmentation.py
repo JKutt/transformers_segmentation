@@ -11,6 +11,39 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 import random
 from scipy.ndimage import laplace
+from scipy.ndimage import gaussian_filter
+
+
+def gaussian_curvature(matrix, smoothness=1):
+    """
+        Apply Gaussian curvature smoothing to a 2D matrix.
+
+        Parameters:
+            matrix (array-like): The input 2D matrix.
+            smoothness (float, optional): The amount of blurring to apply (default is 1).
+            
+        Returns:
+            array-like: The smoothed matrix after Gaussian curvature smoothing.
+
+        Notes:
+            This function applies Gaussian curvature smoothing to the input matrix. 
+            Gaussian curvature smoothing helps in reducing noise and enhancing features 
+            in the matrix by convolving it with a Gaussian kernel.
+
+        Example:
+            >>> matrix = np.array([[1, 2, 3],
+            ...                    [4, 5, 6],
+            ...                    [7, 8, 9]])
+            >>> smoothed_matrix = gaussian_curvature(matrix, smoothness=2)
+    """
+    # Perform minimum curvature interpolation
+    interpolated_matrix = np.copy(matrix)
+
+    # Apply blurring to the interpolated matrix
+    if smoothness > 0:
+        interpolated_matrix = gaussian_filter(interpolated_matrix, sigma=smoothness)
+
+    return interpolated_matrix
 
 
 def latin_hypercube_subsampling(samples, n_subsamples):
