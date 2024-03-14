@@ -10,7 +10,39 @@ from matplotlib import cm
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 import random
-from scipy.ndimage import laplace
+from scipy.ndimage import laplace, gaussian_filter
+
+
+def gaussian_curvature(matrix, smoothness=1):
+    """
+        Apply Gaussian curvature smoothing to a 2D matrix.
+
+        Parameters:
+            matrix (array-like): The input 2D matrix.
+            smoothness (float, optional): The amount of blurring to apply (default is 1).
+            
+        Returns:
+            array-like: The smoothed matrix after Gaussian curvature smoothing.
+
+        Notes:
+            This function applies Gaussian curvature smoothing to the input matrix. 
+            Gaussian curvature smoothing helps in reducing noise and enhancing features 
+            in the matrix by convolving it with a Gaussian kernel.
+
+        Example:
+            >>> matrix = np.array([[1, 2, 3],
+            ...                    [4, 5, 6],
+            ...                    [7, 8, 9]])
+            >>> smoothed_matrix = gaussian_curvature(matrix, smoothness=2)
+    """
+    # Perform minimum curvature interpolation
+    interpolated_matrix = np.copy(matrix)
+
+    # Apply blurring to the interpolated matrix
+    if smoothness > 0:
+        interpolated_matrix = gaussian_filter(interpolated_matrix, sigma=smoothness)
+
+    return interpolated_matrix
 
 
 def latin_hypercube_subsampling(samples, n_subsamples):
@@ -59,12 +91,13 @@ def minimum_curvature(
         numpy.ndarray: The input matrix after applying the minimum curvature operation.
 
     """
-    for _ in range(num_iterations):
-        # Calculate the Laplacian of the input matrix
-        laplacian = laplace(input_matrix)
+    input_matrix = gaussian_curvature(input_matrix, smoothness=1)
+    # for _ in range(num_iterations):
+    #     # Calculate the Laplacian of the input matrix
+    #     laplacian = laplace(input_matrix)
 
-        # Update the input matrix using the Laplacian and a smoothing factor (alpha)
-        input_matrix += alpha * laplacian
+    #     # Update the input matrix using the Laplacian and a smoothing factor (alpha)
+    #     input_matrix += alpha * laplacian
 
     return input_matrix
 
