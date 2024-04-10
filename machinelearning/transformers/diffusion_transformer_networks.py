@@ -413,7 +413,7 @@ class Latent_UNet_Tranformer(nn.Module):
     h = self.tconv1(h + h1)
 
     # Normalize output
-    h = h / self.marginal_prob_std(t)[:, None, None, None]
+    h = h / self.marginal_prob_std(t)[:, None, None, None].to('cuda')
     return h
 
 
@@ -436,8 +436,8 @@ def loss_fn_cond(model, x, y, marginal_prob_std, eps=1e-5):
   """
   random_t = torch.rand(x.shape[0], device=x.device) * (1. - eps) + eps  
   z = torch.randn_like(x)
-  std = marginal_prob_std(random_t)
-  perturbed_x = x + z * std[:, None, None, None]
+  std = marginal_prob_std(random_t).to(x.device)
+  perturbed_x = x + z * std[:, None, None, None].to('cuda')
   score = model(perturbed_x, random_t, y=y)
   loss = torch.mean(torch.sum((score * std[:, None, None, None] + z)**2, dim=(1,2,3)))
   return loss
@@ -494,55 +494,61 @@ sigma =  25.0#@param {'type':'number'}
 marginal_prob_std_fn = functools.partial(marginal_prob_std, sigma=sigma)
 diffusion_coeff_fn = functools.partial(diffusion_coeff, sigma=sigma)
 
-continue_training = False #@param {type:"boolean"}
-if not continue_training:
-  print("initilize new score model...")
-  score_model = torch.nn.DataParallel(UNet_Tranformer(marginal_prob_std=marginal_prob_std_fn))
-  score_model = score_model.to(device)
+# continue_training = False #@param {type:"boolean"}
+# if not continue_training:
+#   print("initilize new score model...")
+#   score_model = torch.nn.DataParallel(UNet_Tranformer(marginal_prob_std=marginal_prob_std_fn))
+#   score_model = score_model.to(device)
 
 
-n_epochs =   100#@param {'type':'integer'}
-## size of a mini-batch
-batch_size =  1024 #@param {'type':'integer'}
-## learning rate
-lr=10e-4 #@param {'type':'number'}
-
-dataset = MNIST('.', train=True, transform=transforms.ToTensor(), download=True)
-data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-
-optimizer = Adam(score_model.parameters(), lr=lr)
-scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: max(0.2, 0.98 ** epoch))
-tqdm_epoch = trange(n_epochs)
-for epoch in tqdm_epoch:
-  avg_loss = 0.
-  num_items = 0
-  for x, y in tqdm(data_loader):
-    x = x.to(device)    
-    loss = loss_fn_cond(score_model, x, y, marginal_prob_std_fn)
-    optimizer.zero_grad()
-    loss.backward()    
-    optimizer.step()
-    avg_loss += loss.item() * x.shape[0]
-    num_items += x.shape[0]
-  scheduler.step()
-  lr_current = scheduler.get_last_lr()[0]
-  print('{} Average Loss: {:5f} lr {:.1e}'.format(epoch, avg_loss / num_items, lr_current))
-  # Print the averaged training loss so far.
-  tqdm_epoch.set_description('Average Loss: {:5f}'.format(avg_loss / num_items))
-  # Update the checkpoint after each epoch of training.
-  torch.save(score_model.state_dict(), 'ckpt_transformer.pth')
-
-# # train autoencoder
-# device = 'cuda'
-# ae_model = AutoEncoder([4, 4, 4]).cuda()
-# n_epochs =   50  #@param {'type':'integer'}
+# n_epochs =   100#@param {'type':'integer'}
 # ## size of a mini-batch
-# batch_size =  2048   #@param {'type':'integer'}
+# batch_size =  1024 #@param {'type':'integer'}
 # ## learning rate
 # lr=10e-4 #@param {'type':'number'}
 
 # dataset = MNIST('.', train=True, transform=transforms.ToTensor(), download=True)
-# data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+# data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+
+# optimizer = Adam(score_model.parameters(), lr=lr)
+# scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: max(0.2, 0.98 ** epoch))
+# tqdm_epoch = trange(n_epochs)
+# for epoch in tqdm_epoch:
+#   avg_loss = 0.
+#   num_items = 0
+#   for x, y in tqdm(data_loader):
+#     x = x.to(device)    
+#     loss = loss_fn_cond(score_model, x, y, marginal_prob_std_fn)
+#     optimizer.zero_grad()
+#     loss.backward()    
+#     optimizer.step()
+#     avg_loss += loss.item() * x.shape[0]
+#     num_items += x.shape[0]
+#   scheduler.step()
+#   lr_current = scheduler.get_last_lr()[0]
+#   print('{} Average Loss: {:5f} lr {:.1e}'.format(epoch, avg_loss / num_items, lr_current))
+#   # Print the averaged training loss so far.
+#   tqdm_epoch.set_description('Average Loss: {:5f}'.format(avg_loss / num_items))
+#   # Update the checkpoint after each epoch of training.
+#   torch.save(score_model.state_dict(), 'ckpt_transformer.pth')
+
+# loss function for autoencoder
+lpips = LPIPS(net="squeeze").cuda()
+loss_fn_ae = lambda x,xhat: \
+    nn.functional.mse_loss(x, xhat) + \
+    lpips(x.repeat(1,3,1,1), x_hat.repeat(1,3,1,1)).mean()
+
+# train autoencoder
+device = 'cuda'
+ae_model = AutoEncoder([4, 4, 4]).cuda()
+n_epochs =   50  #@param {'type':'integer'}
+## size of a mini-batch
+batch_size =  2048   #@param {'type':'integer'}
+## learning rate
+lr=10e-4 #@param {'type':'number'}
+
+dataset = MNIST('.', train=True, transform=transforms.ToTensor(), download=True)
+data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 
 # optimizer = Adam(ae_model.parameters(), lr=lr)
 # tqdm_epoch = trange(n_epochs)
@@ -564,15 +570,44 @@ for epoch in tqdm_epoch:
 #   tqdm_epoch.set_description('Average Loss: {:5f}'.format(avg_loss / num_items))
 #   # Update the checkpoint after each epoch of training.
 #   torch.save(ae_model.state_dict(), 'ckpt_ae.pth')
-
-#   ae_model.eval()
-# x, y = next(iter(data_loader))
-# x_hat = ae_model(x.to(device)).cpu()
+ae_model.load_state_dict(torch.load('ckpt_ae.pth'))
+ae_model.eval()
+x, y = next(iter(data_loader))
+x_hat = ae_model(x.to(device)).cpu()
 # plt.figure(figsize=(6,6.5))
 # plt.axis('off')
 # plt.imshow(make_grid(x[:64,:,:,:].cpu()).permute([1,2,0]), vmin=0., vmax=1.)
 # plt.title("Original")
 # plt.show()
+
+batch_size = 4096
+dataset = MNIST('.', train=True, transform=transforms.ToTensor(), download=True)
+data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+ae_model.requires_grad_(False)
+ae_model.eval()
+zs = []
+ys = []
+for x, y in tqdm(data_loader):
+  z = ae_model.encoder(x.to(device)).cpu()
+  zs.append(z)
+  ys.append(y)
+
+zdata = torch.cat(zs, )
+ydata = torch.cat(ys, )
+
+# play with architecturs
+latent_score_model = torch.nn.DataParallel(
+    Latent_UNet_Tranformer(marginal_prob_std=marginal_prob_std_fn,
+                channels=[4, 16, 32, 64, 128, 256, 512], ))
+latent_score_model = latent_score_model.to(device)
+
+latent_dataset = TensorDataset(zdata, ydata)
+
+train_diffusion_model(latent_dataset, latent_score_model,
+                      n_epochs =   500,
+                      batch_size =  1024,
+                      lr=10e-4,
+                      model_name="transformer_latent")
 
 # plt.figure(figsize=(6,6.5))
 # plt.axis('off')
