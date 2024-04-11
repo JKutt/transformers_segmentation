@@ -503,7 +503,7 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
 
         grad = m_d.T * (G.T @ (M_f @ r))
 
-        grad = minimum_curvature(np.reshape(grad.copy(), self.mesh.shape_cells, order='F'))
+        # grad = minimum_curvature(np.reshape(grad.copy(), self.mesh.shape_cells, order='F'))
         
         return grad.flatten(order='F')
 
