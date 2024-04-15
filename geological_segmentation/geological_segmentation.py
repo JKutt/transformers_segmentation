@@ -1,4 +1,4 @@
-from SimPEG import regularization
+from SimPEG import regularization, utils
 from SimPEG.utils.code_utils import validate_ndarray_with_shape
 import discretize
 import numpy as np
@@ -102,7 +102,6 @@ def minimum_curvature(
     return input_matrix
 
 
-
 def calculate_iou(
         mask1:np.ndarray,
         mask2:np.ndarray
@@ -131,7 +130,6 @@ def calculate_iou(
 
     iou = intersection / union if union > 0 else 0.0
     return iou
-
 
 
 # interjecting the sam classification
@@ -401,8 +399,8 @@ class SamClassificationModel():
                     flattened in Fortran order ('F').
         """
         
-        a = 8
-        b = 15 #self.segmentations[id]['bbox'][0] - (self.segmentations[id]['bbox'][2] // 2)
+        a = 0
+        b = 0 #self.segmentations[id]['bbox'][0] - (self.segmentations[id]['bbox'][2] // 2)
         y0 = self.segmentations[id]['bbox'][0]
         x0 = self.segmentations[id]['bbox'][1] - (2 * b)
         x1 = x0 + self.segmentations[id]['bbox'][3] + (4 * b)
@@ -508,115 +506,354 @@ class GeologicalSegmentation(regularization.SmoothnessFullGradient):
         return grad.flatten(order='F')
 
     
-#     def update_gradients(self, xc):
+class GaussianMixtureMarkovRandomField(utils.WeightedGaussianMixture):
 
-#         masks = self.segmentation_model.fit(xc)
+    def __init__(
+        self,
+        n_components,
+        mesh,
+        actv=None,
+        kdtree=None,
+        indexneighbors=None,
+        boreholeidx=None,
+        T=12.,
+        masks=None,
+        kneighbors=0,
+        norm=2,
+        init_params='kmeans',
+        max_iter=100,
+        covariance_type='full',
+        means_init=None,
+        n_init=10, 
+        precisions_init=None,
+        random_state=None, 
+        reg_covar=1e-06, 
+        tol=0.001, 
+        verbose=0,
+        verbose_interval=10, 
+        warm_start=False, 
+        weights_init=None,
+        anisotropy=None,
+        index_anisotropy=None, # Dictionary with anisotropy and index
+        index_kdtree=None,# List of KDtree
+        segmentation_model_checkpoint=r"C:\Users\johnk\Documents\git\jresearch\PGI\dcip\sam_vit_h_4b8939.pth",
+        #**kwargs
+    ):
 
-#         # loop through masks and assign rotations
-#         for ii in range(1, len(masks)):
-#             seg_data = masks[ii]['segmentation']
-#             seg_data = np.flip(seg_data)
-#             # Find the coordinates of the object pixels
-#             object_pixels = np.argwhere(seg_data == 1)
+        super(GaussianMixtureMarkovRandomField, self).__init__(
+            n_components=n_components,
+            mesh=mesh,
+            actv=actv,
+            covariance_type=covariance_type,
+            init_params=init_params,
+            max_iter=max_iter,
+            means_init=means_init,
+            n_init=n_init,
+            precisions_init=precisions_init,
+            random_state=random_state,
+            reg_covar=reg_covar,
+            tol=tol,
+            verbose=verbose,
+            verbose_interval=verbose_interval,
+            warm_start=warm_start,
+            weights_init=weights_init,
+            #boreholeidx=boreholeidx
+            # **kwargs
+        )
+        # setKwargs(self, **kwargs)
+        self.kneighbors = kneighbors
+        self.T = T
+        self.boreholeidx = boreholeidx
+        self.anisotropy = anisotropy
+        self.norm = norm
+        self.masks = masks
 
-#             # Apply PPCA to determine orientation
-#             if len(object_pixels) > 1:
-#                 # Standardize the data
-#                 scaler = StandardScaler()
-#                 object_pixels_std = scaler.fit_transform(object_pixels)
+        # load segmentation network model
+        sam = sam_model_registry["vit_h"](checkpoint=segmentation_model_checkpoint)
+        self.mask_generator = SamAutomaticMaskGenerator(sam)
 
-#                 # Apply PPCA
-#                 pca = PCA(n_components=2)
-#                 pca.fit(object_pixels_std)
+        if self.mesh.gridCC.ndim == 1:
+            xyz = np.c_[self.mesh.gridCC]
+        elif self.anisotropy is not None:
+            xyz = self.anisotropy.dot(self.mesh.gridCC.T).T
+        else:
+            xyz = self.mesh.gridCC
+        
+        if self.actv is None:
+            self.xyz = xyz
+        else:
+            self.xyz = xyz[self.actv]
+        
+        if kdtree is None:
+            print('Computing KDTree, it may take several minutes.')
+            self.kdtree = spatial.KDTree(self.xyz)
+        else:
+            self.kdtree = kdtree
+        
+        if indexneighbors is None:
+            print('Computing neighbors, it may take several minutes.')
+            _, self.indexneighbors = self.kdtree.query(self.xyz, k=self.kneighbors+1, p=self.norm)
+        else:
+            self.indexneighbors = indexneighbors
 
-#                 # The first principal component (eigenvector) will represent the orientation
-#                 orientation_vector = pca.components_[0]
+        self.indexpoint = copy.deepcopy(self.indexneighbors)
+        self.index_anisotropy = index_anisotropy
+        self.index_kdtree = index_kdtree
+        if self.index_anisotropy is not None and self.mesh.gridCC.ndim != 1:
 
-#                 # Compute the angle of the orientation vector (in degrees)
-#                 angle_degrees = np.arctan2(orientation_vector[1], orientation_vector[0]) * 180 / np.pi
+            self.unitxyz = []
+            for i, anis in enumerate(self.index_anisotropy['anisotropy']):
+                self.unitxyz.append((anis).dot(self.xyz.T).T)
 
-#                 print(f"Orientation angle (degrees): {angle_degrees}")
-#                 angle_radians = angle_degrees * np.pi / 180
+            if self.index_kdtree is None:
+                self.index_kdtree = []
+                print('Computing rock unit specific KDTree, it may take several minutes.')
+                for i, anis in enumerate(self.index_anisotropy['anisotropy']):
+                    self.index_kdtree.append(spatial.KDTree(self.unitxyz[i]))
 
-#                 # Create the 2x2 rotation matrix
-#                 # rotation_matrix = np.array([
-#                 #     [np.cos(angle_radians), -np.sin(angle_radians)],
-#                 #     [np.sin(angle_radians), np.cos(angle_radians)]
-#                 # ])
-#                 reg_dirs = [np.identity(2) for _ in range(self.mesh.nC)]
-#                 sqrt2 = np.sqrt(2)
-#                 rotation_matrix = 1 / np.array([[sqrt2, -sqrt2], [-sqrt2, -sqrt2],])
-#                 alphas = np.ones((self.mesh.n_cells, self.mesh.dim))
-#                 # check for rotation application method
-#                 if self.method == 'bound_box':
-#                     bbox_mask = self.segmentation_model.get_bound_box_indicies(ii)
-#                     for ii in range(self.mesh.nC):
+            #print('Computing new neighbors based on rock units, it may take several minutes.')
+            #for i, unitindex in enumerate(self.index_anisotropy['index']):
+        #        _, self.indexpoint[unitindex] = self.index_kdtree[i].query(self.unitxyz[i][unitindex], k=self.kneighbors+1)
 
-#                         if bbox_mask[ii] == 1:
-#                             print('adjusting')
-#                             # reg_cell_dirs[ii] = np.array([[cos, -sin], [sin, cos],])
-#                             reg_dirs[ii] = rotation_matrix
-#                             alphas[ii] = [150, 25]
-# #         alphas[ii] = [150, 25]
-#                     # reg_dirs[bbox_mask] = [rotation_matrix] * int(bbox_mask.sum())
-#                 else:
-#                     reg_dirs[seg_data] = [rotation_matrix] * seg_data.sum()
+    def update_neighbors_index(
+            
+            self,
+            model:np.ndarray
+            
+    ) -> None:
+        """
+        
+            method that segments the input model and assigns new neighbors described
+            by the segmentation map
 
-#                 reg_dirs = validate_ndarray_with_shape(
-#                     "reg_dirs",
-#                     reg_dirs,
-#                     shape=[(self.mesh.dim, self.mesh.dim), ("*", self.mesh.dim, self.mesh.dim)],
-#                     dtype=float,
-#                 )
-#                 # now do the alphas
-#                 # alphas = np.ones((self.mesh.n_cells, self.mesh.dim))
-#                 # alphas[bbox_mask] = [125, 25]
-#                 anis_alpha = alphas
-#                 mesh = self.mesh
-#                 n_active_cells = self.regularization_mesh.n_cells
-#                 if reg_dirs.shape == (mesh.dim, mesh.dim):
-#                     reg_dirs = np.tile(reg_dirs, (mesh.n_cells, 1, 1))
-#                 if reg_dirs.shape[0] != mesh.n_cells:
-#                     # check if I need to expand from active cells to all cells (needed for discretize)
-#                     if (
-#                         reg_dirs.shape[0] == n_active_cells
-#                         and self.active_cells is not None
-#                     ):
-#                         reg_dirs_temp = np.zeros((mesh.n_cells, mesh.dim, mesh.dim))
-#                         reg_dirs_temp[self.active_cells] = reg_dirs
-#                         reg_dirs = reg_dirs_temp
-#                     else:
-#                         raise IndexError(
-#                             f"`reg_dirs` first dimension, {reg_dirs.shape[0]}, must be either number "
-#                             f"of active cells {mesh.n_cells}, or the number of mesh cells {mesh.n_cells}. "
-#                         )
+            :param model: geophysical model
+            :type model: np.ndarray
 
-#                 # create a stack of matrices of dir @ alphas @ dir.T
-#                 anis_alpha = np.einsum("ink,ik,imk->inm", reg_dirs, anis_alpha, reg_dirs)
-#                 # Then select the upper diagonal components for input to discretize
-#                 if mesh.dim == 2:
-#                     anis_alpha = np.stack(
-#                         (
-#                             anis_alpha[..., 0, 0],
-#                             anis_alpha[..., 1, 1],
-#                             anis_alpha[..., 0, 1],
-#                         ),
-#                         axis=-1,
-#                     )
-#                 elif mesh.dim == 3:
-#                     anis_alpha = np.stack(
-#                         (
-#                             anis_alpha[..., 0, 0],
-#                             anis_alpha[..., 1, 1],
-#                             anis_alpha[..., 2, 2],
-#                             anis_alpha[..., 0, 1],
-#                             anis_alpha[..., 0, 2],
-#                             anis_alpha[..., 1, 2],
-#                         ),
-#                         axis=-1,
-#                     )
-#                 self._anis_alpha = anis_alpha
+        """
 
-#             else:
-#                 raise ValueError("Not enough object pixels to determine orientation.")
+        model_normalized = np.exp(model) / np.abs(np.exp(model)).max()
 
+        image_rgb = Image.fromarray(np.uint8(cm.jet(model_normalized.reshape(self.mesh.shape_cells, order='F'))*255))
+        image_rgb = image_rgb.convert('RGB')
+
+        result = self.mask_generator.generate(np.asarray(image_rgb))
+
+
+        # ---------------------------------------------------------------------------------------------
+
+        # create a matrix that holds information about overlapping mask if they happen to
+
+        # this is done using intersection over union method
+
+        #
+
+        nlayers = self.kneighbors
+
+        union_matrix = np.zeros((nlayers, nlayers))
+        for ii in range(nlayers):
+            for jj in range(nlayers):
+                iou_score = calculate_iou(result[ii]['segmentation'], result[jj]['segmentation'])
+                union_matrix[ii, jj] = iou_score
+                print("IoU score:", iou_score)
+
+        # ------------------------------------------------------------------------------------
+
+        # modify the overlap matrix to assign the proper neighbors mask in the case of onions
+
+        #
+
+        sub_union_matrix = union_matrix[1:, 1:].copy()
+
+        # calculate how many non zero in a row of our overlap matrix
+        for jj in range(sub_onion.shape[0]):
+
+            if np.count_nonzero(sub_onion[jj, :]) > 1:
+
+                mask_index = np.nonzero(sub_union_matrix[jj, :])
+                print(mask_index[0][-1])
+                sub_union_matrix[jj, mask_index[0][-1]] = 1
+                sub_union_matrix[jj, mask_index[0][0]] = 0
+
+        # --------------------------------------------------------------------------------------
+
+        # assign each cell a mask to assign it's neighbors
+
+        #
+
+        hx, hy = mesh.shape_cells
+        x = np.arange(hx)
+        y = np.arange(hy)
+        xx, yy = np.meshgrid(x, y)
+
+        mask_locations = np.vstack([xx.flatten(), yy.flatten()])
+
+        mask_assignment = np.zeros(mask_locations.shape[1])
+
+        for ii in range(mask_locations.shape[1]):
+
+            for jj in range(nlayers - 1):
+
+                idx = np.vstack(np.where(result[jj + 1]['segmentation'] == True))
+
+                point_set = idx.T
+
+                # print(point_set.shape, np.vstack(idx).shape, xx.shape)
+                distances = np.sqrt(np.sum((point_set - mask_locations[:, ii].T)**2, axis=1))
+                # print(jj, mask_assignment[:, ii].T, point_set[0, :])
+                min_distance = np.min(distances)
+                
+                if min_distance == 0:
+                    mask_assignment[ii] = jj + 1
+
+        # ----------------------------------------------------------------------------------------
+
+        # now update the indexpoint matrix
+
+        #
+
+        for kk in range(mask_assignment.shape[0]):
+
+            # check union matrix for the correct mask
+            union_index = mask_assignment[kk] - 1
+            mask_select = np.nonzero(sub_union_matrix[union_index, :])[0][0]
+
+            idx = np.vstack(np.where(result[mask_select]['segmentation'].flatten(order='F') == True))[0]
+            shape_idx = idx.shape[0]
+
+            # if the mask is smaller than the user defined number of neighbors
+            if idx.shape[0] < (self.kneighbors + 1):
+
+                self.indexpoint[kk, :] = self.indexpoint[kk, 0]
+                self.indexpoint[kk, -shape_idx:] = idx
+
+            # otherwise assign the entire mask
+            else:
+
+                self.indexpoint[kk, :] = idx[:(self.kneighbors + 1)]
+
+
+    def computeG(self, z, w, X):
+
+        #Find neighbors given the current state of data and model
+        if self.index_anisotropy is not None and self.mesh.gridCC.ndim != 1:
+            prediction = self.predict(X)
+            unit_index = []
+            for i in range(self.n_components):
+                unit_index.append(np.where(prediction==i)[0])
+            for i, unitindex in enumerate(unit_index):
+                _, self.indexpoint[unitindex] = self.index_kdtree[i].query(
+                    self.unitxyz[i][unitindex],
+                    k=self.kneighbors+1,
+                    p=self.index_anisotropy['norm'][i]
+                )
+
+        logG = (self.T/(2.*(self.kneighbors+1))) * (
+            (z[self.indexpoint] + w[self.indexpoint]).sum(
+                axis=1
+            )
+        )
+        return logG
+
+    def _m_step(self, X, log_resp):
+        """M step.
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+        log_resp : array-like, shape (n_samples, n_components)
+            Logarithm of the posterior probabilities (or responsibilities) of
+            the point of each sample in X.
+        """
+        n_samples, _ = X.shape
+        _, self.means_, self.covariances_ = (
+            self._estimate_gaussian_parameters(X, self.mesh, np.exp(log_resp), self.reg_covar,self.covariance_type)
+        )
+        #self.weights_ /= n_samples
+        self.precisions_cholesky_ = _compute_precision_cholesky(
+            self.covariances_, self.covariance_type)
+
+        logweights = logsumexp(np.c_[[log_resp, self.computeG(np.exp(log_resp), self.weights_,X)]], axis=0)
+        logweights = logweights - logsumexp(
+            logweights, axis=1, keepdims=True
+        )
+
+        self.weights_ = np.exp(logweights)
+        if self.boreholeidx is not None:
+            aux = np.zeros((self.boreholeidx.shape[0],self.n_components))
+            aux[np.arange(len(aux)), self.boreholeidx[:,1]]=1
+            self.weights_[self.boreholeidx[:,0]] = aux
+
+
+    def _check_weights(self, weights, n_components, n_samples):
+        """Check the user provided 'weights'.
+        Parameters
+        ----------
+        weights : array-like, shape (n_components,)
+            The proportions of components of each mixture.
+        n_components : int
+            Number of components.
+        Returns
+        -------
+        weights : array, shape (n_components,)
+        """
+        weights = check_array(
+            weights, dtype=[np.float64, np.float32],
+            ensure_2d=True
+        )
+        _check_shape(weights, (n_components, n_samples), 'weights')
+
+    def _check_parameters(self, X):
+        """Check the Gaussian mixture parameters are well defined."""
+        n_samples, n_features = X.shape
+        if self.covariance_type not in ['spherical', 'tied', 'diag', 'full']:
+            raise ValueError("Invalid value for 'covariance_type': %s "
+                             "'covariance_type' should be in "
+                             "['spherical', 'tied', 'diag', 'full']"
+                             % self.covariance_type)
+
+        if self.weights_init is not None:
+            self.weights_init = self._check_weights(
+                self.weights_init,
+                n_samples,
+                self.n_components
+            )
+
+        if self.means_init is not None:
+            self.means_init = _check_means(self.means_init,
+                                           self.n_components, n_features)
+
+        if self.precisions_init is not None:
+            self.precisions_init = _check_precisions(self.precisions_init,
+                                                     self.covariance_type,
+                                                     self.n_components,
+                                                     n_features)
+
+    def _initialize(self, X, resp):
+        """Initialization of the Gaussian mixture parameters.
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+        resp : array-like, shape (n_samples, n_components)
+        """
+        n_samples, _ = X.shape
+
+        weights, means, covariances = self._estimate_gaussian_parameters(
+            X, self.mesh, resp, self.reg_covar, self.covariance_type)
+        weights /= n_samples
+
+        self.weights_ = (weights*np.ones((n_samples,self.n_components)) if self.weights_init is None
+                         else self.weights_init)
+        self.means_ = means if self.means_init is None else self.means_init
+
+        if self.precisions_init is None:
+            self.covariances_ = covariances
+            self.precisions_cholesky_ = _compute_precision_cholesky(
+                covariances, self.covariance_type)
+        elif self.covariance_type == 'full':
+            self.precisions_cholesky_ = np.array(
+                [linalg.cholesky(prec_init, lower=True)
+                 for prec_init in self.precisions_init])
+        elif self.covariance_type == 'tied':
+            self.precisions_cholesky_ = linalg.cholesky(self.precisions_init,
+                                                        lower=True)
+        else:
+            self.precisions_cholesky_ = self.precisions_init
