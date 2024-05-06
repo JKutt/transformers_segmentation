@@ -13,6 +13,56 @@ import random
 from scipy.ndimage import laplace, gaussian_filter
 
 
+def admm_solver(A, b, rho, alpha, max_iter):
+    """
+    Solve the optimization problem using the Alternating Direction Method of Multipliers (ADMM).
+
+    Parameters:
+        A (numpy.ndarray): The coefficient matrix.
+        b (numpy.ndarray): The target vector.
+        rho (float): The penalty parameter.
+        alpha (float): The relaxation parameter.
+        max_iter (int): The maximum number of iterations.
+
+    Returns:
+        numpy.ndarray: The solution vector.
+    """
+    m, n = A.shape
+    x = np.zeros(n)
+    z = np.zeros(n)
+    u = np.zeros(n)
+
+    for _ in range(max_iter):
+        # Update x
+        x = np.linalg.inv(A.T @ A + rho * np.eye(n)) @ (A.T @ b + rho * (z - u))
+        
+        # Update z
+        z_prev = z.copy()
+        z = soft_thresholding(x + u, alpha / rho)
+        
+        # Update u
+        u = u + x - z
+        
+        # Check convergence
+        if np.linalg.norm(z - z_prev) < 1e-6:
+            break
+
+    return z
+
+def soft_thresholding(x, threshold):
+    """
+    Apply soft thresholding to the input vector.
+
+    Parameters:
+        x (numpy.ndarray): The input vector.
+        threshold (float): The threshold value.
+
+    Returns:
+        numpy.ndarray: The thresholded vector.
+    """
+    return np.sign(x) * np.maximum(np.abs(x) - threshold, 0)
+
+
 def gaussian_curvature(matrix, smoothness=1):
     """
         Apply Gaussian curvature smoothing to a 2D matrix.
