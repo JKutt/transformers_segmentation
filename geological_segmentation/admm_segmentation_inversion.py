@@ -13,6 +13,7 @@ from scipy.spatial import cKDTree
 import matplotlib.pyplot as plt
 from pymatsolver import Pardiso as Solver
 from SimPEG.electromagnetics.static import resistivity as dc, utils as dcutils
+import scipy.sparse as sp
 
 # -------------------------------------------------------------------------------------------------
 def steepest_descent(sim, data, niter):
@@ -28,6 +29,36 @@ def steepest_descent(sim, data, niter):
     r  = r - mu*Ag
     g  = sim.Jtvec(r, v=None)
     print('%3d       %3.2e'%(i, r.norm()/data.norm()))
+  return u
+
+def conjugate_gradient(forProb, reg, alpha, d, niter=10, tol=1e-3):
+
+  def HmatVec(x, forProb, reg, alpha):
+    Ax = forProb(x)
+    ATAx = forProb.adjoint(Ax)
+    _, WTWx = reg(x)
+    Hx = ATAx + alpha*(WTWx).view(-1)
+    return Hx
+
+  rhs = forProb.adjoint(d)
+  u   = 0
+  r   = rhs.clone()
+
+  p   = r.clone()
+  for i in range(niter):
+    Hp = HmatVec(p, forProb, reg, alpha)
+    rsq = (r*r).mean()
+    mu = (r*r).mean()/(p*Hp).mean()
+    u = u + mu*p
+    r = r - mu*Hp
+
+    if r.norm()/rhs.norm() < tol:
+      return u
+
+    beta = (r*r).mean()/rsq
+    p    = r + beta*p
+    misfit = (forProb(u) - d).norm()/d.norm()
+    print('%3d      %3.2e      %3.2e'%(i, r.norm()/rhs.norm(), misfit))
   return u
 
 
@@ -211,8 +242,104 @@ print(relative_error_list.min())
 print(relative_error_list.max())
 
 
-uhat = steepest_descent(simulation.Jtvec, dc_data.dobs, 20)
+# uhat = steepest_descent(simulation.Jtvec, dc_data.dobs, 20)
 
-fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-meshCore.plot_image(uhat, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
-plt.show()
+# fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+# meshCore.plot_image(uhat, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
+# plt.show()
+
+# -----------------------------------------------------------------------
+
+dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
+
+m0 = np.log(1/dcutils.apparent_resistivity_from_voltage(survey, dc_data.dobs).mean()) * np.ones(mapping.nP)
+z0 = m0.copy()
+u0 = np.zeros_like(z0)
+idenMap = maps.IdentityMap(nP=m0.shape[0])
+
+reg = regularization.Smallness(
+    mesh=meshCore,
+    reference_model=(z0 + u0),
+)
+
+def soft_thresholding(x, threshold):
+    """
+    Apply soft thresholding to the elements of a vector.
+
+    Parameters:
+        x (array-like): Input vector.
+        threshold (float): Threshold value.
+
+    Returns:
+        array-like: Soft thresholded vector.
+    """
+    # Soft thresholding operation
+    return np.sign(x) * np.maximum(0, np.abs(x) - threshold)
+
+class evaluate_objective():
+    
+    def __init__(self, dmisfit, aug_lag, gamma=1.0):
+        """
+        Evaluate the objective function for the inversion problem.
+
+        Parameters:
+            m (array-like): Model vector.
+            dmis (data_misfit.DataMisfit): Data misfit object.
+            reg (regularization.Regularization): Regularization object.
+
+        Returns:
+            float: Objective function value.
+        """
+
+        self.gamma = gamma
+        self.aug_lag = aug_lag
+        self.dmisfit = dmisfit
+
+    def __call__(self, m, return_g=True, return_H=True):
+        f = self.dmisfit.simulation.fields(m)
+
+        # Data misfit term
+        phi_d = self.dmisfit(m, f=f)
+
+        print(f'phi_d: {phi_d}')
+
+        # Regularization term
+        phi_m = reg(m)
+
+        phi_dDeriv = self.dmisfit.deriv(m, f=f)
+        phi_mDeriv = self.aug_lag.deriv(m)
+
+        g = phi_dDeriv + self.gamma * phi_mDeriv
+
+        def H_fun(v):
+            phi_d2Deriv = self.dmisfit.deriv2(m, v, f=f)
+            phi_m2Deriv = self.aug_lag.deriv2(m, v=v)
+
+            return phi_d2Deriv + self.gamma * phi_m2Deriv
+
+        H = sp.linalg.LinearOperator((m.size, m.size), H_fun, dtype=m.dtype)
+
+        return phi_d + phi_m, g, H
+
+m = m0.copy()
+z = z0.copy()
+u = u0.copy()
+
+opt = optimization.ProjectedGNCG(maxIter=60, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
+opt.Solver = Solver
+opt.remember('xc')
+
+for ii in range(10):
+   
+    reg = regularization.Smallness(
+        mesh=meshCore,
+        reference_model=(z + u),
+    )
+
+    # eval_funct = evaluate_objective(dmis, reg)
+
+    m = opt.minimize(evaluate_objective(dmis, reg), m)
+
+    z = soft_thresholding(m + u, 1.0)
+
+    u = u + (m - z)
