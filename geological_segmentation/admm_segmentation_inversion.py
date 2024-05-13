@@ -160,9 +160,9 @@ fault_function = lambda x, slope, shift: slope * x + shift
 
 # Dike 30*
 dike0 = mesh.gridCC[:,1] > fault_function(
-    mesh.gridCC[:,0], np.tan(30 * np.pi / 180), -75)
+    mesh.gridCC[:,0], np.tan(30 * np.pi / 180), -175)
 dike1 = mesh.gridCC[:,1] < fault_function(
-    mesh.gridCC[:,0], np.tan(30 * np.pi / 180), 0)
+    mesh.gridCC[:,0], np.tan(30 * np.pi / 180), -100)
 dike = np.logical_and(dike0,dike1)
 
 model[dike]=4
@@ -293,7 +293,7 @@ dc_data = simulation.make_synthetic_data(
     
     mtrue[actcore],
     relative_error=relative_measurement_error,
-    noise_floor=6e-3,
+    noise_floor=5e-3,
     force=True,
     add_noise=True,
 
@@ -315,11 +315,11 @@ print(relative_error_list.max())
 # -----------------------------------------------------------------------
 
 dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
-# dmis.W = 1./((dc_data.dobs*0.01) + np.quantile(np.abs(dc_data.dobs), 0.1))
+# dmis.W = 1./((dc_data.dobs*0.05) + np.quantile(np.abs(dc_data.dobs), 0.07))
 
 m0 = np.log(1/500.0) * np.ones(mapping.nP) # 1/dcutils.apparent_resistivity_from_voltage(survey, dc_data.dobs).mean()) * np.ones(mapping.nP)
 z0 = m0.copy()
-u0 = np.random.randn(z0.shape[0]) # np.zeros_like(z0)
+u0 = np.zeros_like(z0) # np.random.randn(z0.shape[0])
 idenMap = maps.IdentityMap(nP=m0.shape[0])
 
 reg = regularization.Smallness(
