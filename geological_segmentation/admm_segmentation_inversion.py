@@ -31,7 +31,7 @@ def steepest_descent(sim, data, niter):
     print('%3d       %3.2e'%(i, r.norm()/data.norm()))
   return u
 
-def conjugate_gradient(forProb, reg, alpha, d, niter=10, tol=1e-3):
+def conjugate_gradient(forProb, reg, alpha, d, niter=10, tol=1e3):
 
   def HmatVec(x, forProb, reg, alpha):
     Ax = forProb(x)
@@ -61,6 +61,70 @@ def conjugate_gradient(forProb, reg, alpha, d, niter=10, tol=1e-3):
     print('%3d      %3.2e      %3.2e'%(i, r.norm()/rhs.norm(), misfit))
   return u
 
+def soft_thresholding(x, threshold):
+    """
+    Apply soft thresholding to the elements of a vector.
+
+    Parameters:
+        x (array-like): Input vector.
+        threshold (float): Threshold value.
+
+    Returns:
+        array-like: Soft thresholded vector.
+    """
+    # Soft thresholding operation
+    return np.sign(x) * np.maximum(0, np.abs(x) - threshold)
+
+class evaluate_objective():
+    
+    def __init__(self, dmisfit, aug_lag, gamma=1.0e-1):
+        """
+        Evaluate the objective function for the inversion problem.
+
+        Parameters:
+            m (array-like): Model vector.
+            dmis (data_misfit.DataMisfit): Data misfit object.
+            reg (regularization.Regularization): Regularization object.
+
+        Returns:
+            float: Objective function value.
+        """
+
+        self.gamma = gamma
+        self.aug_lag = aug_lag
+        self.dmisfit = dmisfit
+
+    def __call__(self, model, return_g=True, return_H=True):
+        f = self.dmisfit.simulation.fields(model)
+
+        # Data misfit term
+        phi_d = self.dmisfit(model, f=f)
+
+        # Regularization term
+        phi_m = reg(model)
+        phi = phi_d + self.gamma * phi_m
+        out = (phi,)
+        print(f'phi_d: {phi_d}, phi_m: {phi_m}')
+
+        if return_g:
+
+            phi_dDeriv = self.dmisfit.deriv(model, f=f)
+            phi_mDeriv = self.aug_lag.deriv(model)
+
+            g = phi_dDeriv + self.gamma * phi_mDeriv
+            out += (g,)
+        
+        if return_H:
+            def H_fun(v):
+                phi_d2Deriv = self.dmisfit.deriv2(model, v, f=f)
+                phi_m2Deriv = self.aug_lag.deriv2(model, v=v)
+
+                return phi_d2Deriv + self.gamma * phi_m2Deriv
+
+            H = sp.linalg.LinearOperator((model.size, model.size), H_fun, dtype=model.dtype)
+            out += (H,)
+
+        return out if len(out) > 1 else out[0]
 
 # -------------------------------------------------------------------------------------------------
 
@@ -104,11 +168,11 @@ dike = np.logical_and(dike0,dike1)
 model[dike]=4
 
 # plot
-fig,ax = plt.subplots(3, 1,figsize=(10,20))
-mm1 = mesh.plotImage(model, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
+# fig,ax = plt.subplots(3, 1,figsize=(10,20))
+# mm1 = mesh.plotImage(model, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
 
-ax[0].set_xlim([-1000,1000])
-ax[0].set_ylim([-250,0])
+# ax[0].set_xlim([-1000,1000])
+# ax[0].set_ylim([-250,0])
 # ax[0].set_aspect(2)
 # plt.colorbar(mm1[0])
 
@@ -137,30 +201,30 @@ actcore,  meshCore = utils.mesh_utils.extract_core_mesh(xyzlim, mesh)
 actind = np.ones_like(actcore)
 
 # plot
-mm = meshCore.plot_image(
+# mm = meshCore.plot_image(
     
-    1/(cond_true)[actcore],
-    ax=ax[0],
-    pcolorOpts={'cmap':'Spectral_r'}
+#     1/(cond_true)[actcore],
+#     ax=ax[0],
+#     pcolorOpts={'cmap':'Spectral_r'}
 
-)
+# )
 
-utils.plot2Ddata(
+# utils.plot2Ddata(
 
-    meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
-    contourOpts={'alpha':0},
-    #clim=[0,5],
-    ax=ax[0],
-    level=True,
-    ncontour=2,
-    levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
-    method='nearest'
+#     meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
+#     contourOpts={'alpha':0},
+#     #clim=[0,5],
+#     ax=ax[0],
+#     level=True,
+#     ncontour=2,
+#     levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
+#     method='nearest'
     
-)
+# )
 #plt.gca().set_ylim([-200,0])
-ax[0].set_aspect(1)
-plt.colorbar(mm[0], label=r'$\Omega$ m')
-ax[0].set_title('True model')
+# ax[0].set_aspect(1)
+# plt.colorbar(mm[0], label=r'$\Omega$ m')
+# ax[0].set_title('True model')
 
 xmin, xmax = -350., 350.
 ymin, ymax = 0., 0.
@@ -251,10 +315,11 @@ print(relative_error_list.max())
 # -----------------------------------------------------------------------
 
 dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
+# dmis.W = 1./((dc_data.dobs*0.01) + np.quantile(np.abs(dc_data.dobs), 0.1))
 
-m0 = np.log(1/dcutils.apparent_resistivity_from_voltage(survey, dc_data.dobs).mean()) * np.ones(mapping.nP)
+m0 = np.log(1/500.0) * np.ones(mapping.nP) # 1/dcutils.apparent_resistivity_from_voltage(survey, dc_data.dobs).mean()) * np.ones(mapping.nP)
 z0 = m0.copy()
-u0 = np.zeros_like(z0)
+u0 = np.random.randn(z0.shape[0]) # np.zeros_like(z0)
 idenMap = maps.IdentityMap(nP=m0.shape[0])
 
 reg = regularization.Smallness(
@@ -262,84 +327,79 @@ reg = regularization.Smallness(
     reference_model=(z0 + u0),
 )
 
-def soft_thresholding(x, threshold):
-    """
-    Apply soft thresholding to the elements of a vector.
-
-    Parameters:
-        x (array-like): Input vector.
-        threshold (float): Threshold value.
-
-    Returns:
-        array-like: Soft thresholded vector.
-    """
-    # Soft thresholding operation
-    return np.sign(x) * np.maximum(0, np.abs(x) - threshold)
-
-class evaluate_objective():
-    
-    def __init__(self, dmisfit, aug_lag, gamma=1.0):
-        """
-        Evaluate the objective function for the inversion problem.
-
-        Parameters:
-            m (array-like): Model vector.
-            dmis (data_misfit.DataMisfit): Data misfit object.
-            reg (regularization.Regularization): Regularization object.
-
-        Returns:
-            float: Objective function value.
-        """
-
-        self.gamma = gamma
-        self.aug_lag = aug_lag
-        self.dmisfit = dmisfit
-
-    def __call__(self, m, return_g=True, return_H=True):
-        f = self.dmisfit.simulation.fields(m)
-
-        # Data misfit term
-        phi_d = self.dmisfit(m, f=f)
-
-        print(f'phi_d: {phi_d}')
-
-        # Regularization term
-        phi_m = reg(m)
-
-        phi_dDeriv = self.dmisfit.deriv(m, f=f)
-        phi_mDeriv = self.aug_lag.deriv(m)
-
-        g = phi_dDeriv + self.gamma * phi_mDeriv
-
-        def H_fun(v):
-            phi_d2Deriv = self.dmisfit.deriv2(m, v, f=f)
-            phi_m2Deriv = self.aug_lag.deriv2(m, v=v)
-
-            return phi_d2Deriv + self.gamma * phi_m2Deriv
-
-        H = sp.linalg.LinearOperator((m.size, m.size), H_fun, dtype=m.dtype)
-
-        return phi_d + phi_m, g, H
-
 m = m0.copy()
 z = z0.copy()
 u = u0.copy()
 
-opt = optimization.ProjectedGNCG(maxIter=60, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
-opt.Solver = Solver
+opt = optimization.ProjectedGNCG(maxIter=1, upper=np.inf, lower=np.log(1/600), tolCG=1E-5, maxIterLS=20, )
+
 opt.remember('xc')
 
-for ii in range(10):
+solver_opts = dmis.simulation.solver_opts
+
+reg = regularization.Smallness(
+    mesh=meshCore,
+    reference_model=(z + u),
+)
+
+opt.bfgsH0 = Solver(
+    sp.csr_matrix(reg.deriv2(m0)), **solver_opts
+)
+
+eval_funct = evaluate_objective(dmis, reg)
+trade_off = 0.0
+for ii in range(15):
    
-    reg = regularization.Smallness(
-        mesh=meshCore,
-        reference_model=(z + u),
-    )
-
-    # eval_funct = evaluate_objective(dmis, reg)
-
-    m = opt.minimize(evaluate_objective(dmis, reg), m)
-
-    z = soft_thresholding(m + u, 1.0)
+    reg.reference_model=(z + u)
+    print(f'm update')
+    m = opt.minimize(evaluate_objective(dmis, reg, gamma=trade_off), m)
+    print(f'z update')
+    z = soft_thresholding(m + u, trade_off)
 
     u = u + (m - z)
+
+    np.save(f'model_{ii}.npy', m)
+    np.save(f'z_variabe_{ii}.npy', z)
+
+    if ii > 4:
+       trade_off = 1e-4
+
+fig, ax = plt.subplots(3, 1, figsize=(10, 5))
+
+meshCore.plot_image(1/ np.exp(z), ax=ax[0], pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
+meshCore.plot_image(1/ np.exp(m), ax=ax[1], pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
+ax[0].axis('equal')
+ax[1].axis('equal')
+ax[2].hist(1/ np.exp(z), 100, label='z')
+ax[2].hist(1/ np.exp(m), 100, label='z', alpha=0.4)
+
+utils.plot2Ddata(
+
+    meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
+    contourOpts={'alpha':0},
+    #clim=[0,5],
+    ax=ax[0],
+    level=True,
+    ncontour=2,
+    levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
+    method='nearest'
+    
+)
+
+utils.plot2Ddata(
+
+    meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
+    contourOpts={'alpha':0},
+    #clim=[0,5],
+    ax=ax[1],
+    level=True,
+    ncontour=2,
+    levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
+    method='nearest'
+    
+)
+
+plt.show()
+
+np.save('model.npy', m)
+np.save('z_variabe.npy', z)
