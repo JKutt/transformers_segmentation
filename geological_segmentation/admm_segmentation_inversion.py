@@ -16,50 +16,6 @@ from SimPEG.electromagnetics.static import resistivity as dc, utils as dcutils
 import scipy.sparse as sp
 
 # -------------------------------------------------------------------------------------------------
-def steepest_descent(sim, data, niter):
-
-  r = data.copy()
-  g = sim.Jtvec(r, v=None)
-  u = 0
-  for i in range(niter):
-
-    Ag = sim.dpred(g)
-    mu = (Ag*r).mean()/(Ag*Ag).mean()
-    u  = u + mu*g
-    r  = r - mu*Ag
-    g  = sim.Jtvec(r, v=None)
-    print('%3d       %3.2e'%(i, r.norm()/data.norm()))
-  return u
-
-def conjugate_gradient(forProb, reg, alpha, d, niter=10, tol=1e3):
-
-  def HmatVec(x, forProb, reg, alpha):
-    Ax = forProb(x)
-    ATAx = forProb.adjoint(Ax)
-    _, WTWx = reg(x)
-    Hx = ATAx + alpha*(WTWx).view(-1)
-    return Hx
-
-  rhs = forProb.adjoint(d)
-  u   = 0
-  r   = rhs.clone()
-
-  p   = r.clone()
-  for i in range(niter):
-    Hp = HmatVec(p, forProb, reg, alpha)
-    rsq = (r*r).mean()
-    mu = (r*r).mean()/(p*Hp).mean()
-    u = u + mu*p
-    r = r - mu*Hp
-
-    if r.norm()/rhs.norm() < tol:
-      return u
-
-    beta = (r*r).mean()/rsq
-    p    = r + beta*p
-    misfit = (forProb(u) - d).norm()/d.norm()
-    print('%3d      %3.2e      %3.2e'%(i, r.norm()/rhs.norm(), misfit))
-  return u
 
 def soft_thresholding(x, threshold):
     """
@@ -77,7 +33,7 @@ def soft_thresholding(x, threshold):
 
 class evaluate_objective():
     
-    def __init__(self, dmisfit, aug_lag, gamma=1.0e-1):
+    def __init__(self, dmisfit, aug_lag, regularize, gamma=1.0e-1):
         """
         Evaluate the objective function for the inversion problem.
 
@@ -93,6 +49,8 @@ class evaluate_objective():
         self.gamma = gamma
         self.aug_lag = aug_lag
         self.dmisfit = dmisfit
+        self.regularize = regularize
+        self.beta = 1e0
 
     def __call__(self, model, return_g=True, return_H=True):
         f = self.dmisfit.simulation.fields(model)
@@ -110,16 +68,18 @@ class evaluate_objective():
 
             phi_dDeriv = self.dmisfit.deriv(model, f=f)
             phi_mDeriv = self.aug_lag.deriv(model)
+            phi_rmDeriv = self.regularize.deriv(model)
 
-            g = phi_dDeriv + self.gamma * phi_mDeriv
+            g = phi_dDeriv + self.gamma * phi_mDeriv + self.beta * phi_rmDeriv
             out += (g,)
         
         if return_H:
             def H_fun(v):
                 phi_d2Deriv = self.dmisfit.deriv2(model, v, f=f)
                 phi_m2Deriv = self.aug_lag.deriv2(model, v=v)
+                phi_rm2Deriv = self.regularize.deriv2(model, v=v)
 
-                return phi_d2Deriv + self.gamma * phi_m2Deriv
+                return phi_d2Deriv + self.gamma * phi_m2Deriv + self.beta * phi_rm2Deriv
 
             H = sp.linalg.LinearOperator((model.size, model.size), H_fun, dtype=model.dtype)
             out += (H,)
@@ -322,11 +282,6 @@ z0 = m0.copy()
 u0 = np.zeros_like(z0) # np.random.randn(z0.shape[0])
 idenMap = maps.IdentityMap(nP=m0.shape[0])
 
-reg = regularization.Smallness(
-    mesh=meshCore,
-    reference_model=(z0 + u0),
-)
-
 m = m0.copy()
 z = z0.copy()
 u = u0.copy()
@@ -342,27 +297,49 @@ reg = regularization.Smallness(
     reference_model=(z + u),
 )
 
-opt.bfgsH0 = Solver(
-    sp.csr_matrix(reg.deriv2(m0)), **solver_opts
+# # Weighting
+reg_mean = regularization.WeightedLeastSquares(
+    mesh, 
+    active_cells=actcore,
+    mapping=idenMap,
+    reference_model=m0
 )
 
-eval_funct = evaluate_objective(dmis, reg)
-trade_off = 0.0
-for ii in range(15):
+reg_mean.alpha_s = 0
+reg_mean.alpha_x = 100
+reg_mean.alpha_y = 100
+
+opt.bfgsH0 = Solver(
+    sp.csr_matrix(reg.deriv2(m0) + reg_mean.deriv2(m0)), **solver_opts
+)
+
+# segmentor = geoseg.SamClassificationModel(
+#     meshCore,
+#     segmentation_model_checkpoint=r"/home/juanito/Documents/trained_models/sam_vit_h_4b8939.pth"
+# )
+
+eval_funct = evaluate_objective(dmis, reg, reg_mean)
+trade_off = 1e-3
+for ii in range(10):
    
     reg.reference_model=(z + u)
-    print(f'm update')
-    m = opt.minimize(evaluate_objective(dmis, reg, gamma=trade_off), m)
-    print(f'z update')
+    print(f'm update {ii}')
+    m = opt.minimize(evaluate_objective(dmis, reg, reg_mean, gamma=trade_off), m)
+    print(f'z update {ii}')
     z = soft_thresholding(m + u, trade_off)
+
+    # # new z
+    # segmentor.fit(m)
+
+    # z = segmentor.predict(m)
 
     u = u + (m - z)
 
     np.save(f'model_{ii}.npy', m)
     np.save(f'z_variabe_{ii}.npy', z)
 
-    if ii > 4:
-       trade_off = 1e-4
+    if ii > 5:
+       trade_off = 1e-1
 
 fig, ax = plt.subplots(3, 1, figsize=(10, 5))
 
@@ -371,7 +348,7 @@ meshCore.plot_image(1/ np.exp(m), ax=ax[1], pcolor_opts={'cmap':'Spectral'}, cli
 ax[0].axis('equal')
 ax[1].axis('equal')
 ax[2].hist(1/ np.exp(z), 100, label='z')
-ax[2].hist(1/ np.exp(m), 100, label='z', alpha=0.4)
+ax[2].hist(1/ np.exp(m), 100, label='m', alpha=0.4)
 
 utils.plot2Ddata(
 
