@@ -86,6 +86,7 @@ class evaluate_objective():
 
         return out if len(out) > 1 else out[0]
 
+
 # -------------------------------------------------------------------------------------------------
 
 # create a 2d mesh for a dc simulation
@@ -93,9 +94,9 @@ class evaluate_objective():
 #
 
 #2D mesh
-csx,  csy,  csz = 5.,  5.,  5.
+csx,  csy,  csz = 25,  25,  25
 # Number of core cells in each direction
-ncx,  ncz = 163,  61
+ncx,  ncz = int(162/2 + 1),  int(60/2 + 1)
 # Number of padding cells to add in each direction
 npad = 12
 # Vectors of cell lengthts in each direction
@@ -127,15 +128,6 @@ dike = np.logical_and(dike0,dike1)
 
 model[dike]=4
 
-# plot
-# fig,ax = plt.subplots(3, 1,figsize=(10,20))
-# mm1 = mesh.plotImage(model, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
-
-# ax[0].set_xlim([-1000,1000])
-# ax[0].set_ylim([-250,0])
-# ax[0].set_aspect(2)
-# plt.colorbar(mm1[0])
-
 
 # define conductivities
 res_true = np.ones(mesh.nC)
@@ -153,47 +145,59 @@ cond_true = 1./res_true
 
 mtrue = np.log(cond_true)
 
-xmin, xmax = -400., 400.
-ymin, ymax = -300., 0.
+xmin, xmax = -1000., 1000.
+ymin, ymax = -400., 0.
 zmin, zmax = 0, 0
 xyzlim = np.r_[[[xmin, xmax], [ymin, ymax]]]
 actcore,  meshCore = utils.mesh_utils.extract_core_mesh(xyzlim, mesh)
-actind = np.ones_like(actcore)
+actind = np.ones(mesh.n_cells, dtype=bool)
 
 # plot
-# mm = meshCore.plot_image(
+fig,ax = plt.subplots(3, 1,figsize=(10,20))
+mm1 = mesh.plotImage(res_true, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
+
+# ax[0].set_xlim([-1000,1000])
+# ax[0].set_ylim([-250,0])
+ax[0].set_aspect(1)
+plt.colorbar(mm1[0])
+
+# plot
+mm = meshCore.plot_image(
     
-#     1/(cond_true)[actcore],
-#     ax=ax[0],
-#     pcolorOpts={'cmap':'Spectral_r'}
+    1/(cond_true)[actcore],
+    ax=ax[1],
+    pcolorOpts={'cmap':'Spectral_r'},
+    grid=True
 
-# )
+)
 
-# utils.plot2Ddata(
+utils.plot2Ddata(
 
-#     meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
-#     contourOpts={'alpha':0},
-#     #clim=[0,5],
-#     ax=ax[0],
-#     level=True,
-#     ncontour=2,
-#     levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
-#     method='nearest'
+    meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
+    contourOpts={'alpha':0},
+    #clim=[0,5],
+    ax=ax[1],
+    level=True,
+    ncontour=2,
+    levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
+    method='nearest'
     
-# )
-#plt.gca().set_ylim([-200,0])
-# ax[0].set_aspect(1)
-# plt.colorbar(mm[0], label=r'$\Omega$ m')
-# ax[0].set_title('True model')
+)
+# plt.gca().set_ylim([-200,0])
+ax[1].set_aspect(1)
+plt.colorbar(mm[0], label=r'$\Omega$ m')
+ax[1].set_title('True model')
 
-xmin, xmax = -350., 350.
+xmin, xmax = -750., 750.
 ymin, ymax = 0., 0.
 zmin, zmax = 0, 0
 
 endl = np.array([[xmin, ymin, zmin], [xmax, ymax, zmax]])
 srclist = []
 
-for dipole in np.linspace(25,250,10):
+for dipole in np.arange(25,250,25):
+
+    print(f'adding dipole size: {dipole}')
     
     survey1 = dcutils.generate_dcip_survey(
         
@@ -227,8 +231,8 @@ expmap = maps.ExpMap(mesh)
 mapactive = maps.InjectActiveCells(
     
     mesh=mesh,
-    indActive=actcore,
-    valInactive=-np.log(100)
+    indActive=actind,
+    valInactive=np.log(1e-8)
 
 )
 mapping = expmap * mapactive
@@ -251,9 +255,9 @@ simulation = dc.Simulation2DNodal(
 relative_measurement_error = 0.01
 dc_data = simulation.make_synthetic_data(
     
-    mtrue[actcore],
+    mtrue,
     relative_error=relative_measurement_error,
-    noise_floor=5e-3,
+    noise_floor=6e-3,
     force=True,
     add_noise=True,
 
@@ -264,13 +268,7 @@ dc_data = simulation.make_synthetic_data(
 relative_error_list = (np.abs(dc_data.standard_deviation/dc_data.dobs))
 print(relative_error_list.min())
 print(relative_error_list.max())
-
-
-# uhat = steepest_descent(simulation.Jtvec, dc_data.dobs, 20)
-
-# fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-# meshCore.plot_image(uhat, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
-# plt.show()
+print(dc_data.dobs.shape)
 
 # -----------------------------------------------------------------------
 
@@ -293,14 +291,14 @@ opt.remember('xc')
 solver_opts = dmis.simulation.solver_opts
 
 reg = regularization.Smallness(
-    mesh=meshCore,
+    mesh=mesh,
     reference_model=(z + u),
 )
 
 # # Weighting
 reg_mean = regularization.WeightedLeastSquares(
     mesh, 
-    active_cells=actcore,
+    active_cells=actind,
     mapping=idenMap,
     reference_model=m0
 )
@@ -310,7 +308,7 @@ reg_mean.alpha_x = 100
 reg_mean.alpha_y = 100
 
 opt.bfgsH0 = Solver(
-    sp.csr_matrix(reg.deriv2(m0) + reg_mean.deriv2(m0)), **solver_opts
+    sp.csr_matrix(reg.deriv2(m0)), **solver_opts
 )
 
 # segmentor = geoseg.SamClassificationModel(
@@ -343,12 +341,12 @@ for ii in range(10):
 
 fig, ax = plt.subplots(3, 1, figsize=(10, 5))
 
-meshCore.plot_image(1/ np.exp(z), ax=ax[0], pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
-meshCore.plot_image(1/ np.exp(m), ax=ax[1], pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
+meshCore.plot_image(1/ np.exp(z[actind]), ax=ax[0], pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
+meshCore.plot_image(1/ np.exp(m[actind]), ax=ax[1], pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
 ax[0].axis('equal')
 ax[1].axis('equal')
-ax[2].hist(1/ np.exp(z), 100, label='z')
-ax[2].hist(1/ np.exp(m), 100, label='m', alpha=0.4)
+ax[2].hist(1/ np.exp(z[actind]), 100, label='z')
+ax[2].hist(1/ np.exp(m[actind]), 100, label='m', alpha=0.4)
 
 utils.plot2Ddata(
 

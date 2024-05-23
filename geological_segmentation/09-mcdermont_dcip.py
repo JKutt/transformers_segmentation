@@ -35,6 +35,68 @@ from matplotlib import rcParams
 rcParams["font.size"] = 14
 
 
+class plot_mref(directives.InversionDirective):
+
+    mesh = None
+    
+    def initialize(self):
+        self.start = 0
+        # self.endIter()
+    
+    def endIter(self):
+        # plot
+        meshCore = self.mesh
+        # predicted = self.invProb.reg.gmmref.predict(self.opt.xc.reshape(-1, 1))
+        fig,ax = plt.subplots(3,1,figsize=(15,5))
+        mm = meshCore.plot_image(
+            self.opt.xc, ax=ax[0],
+            # clim=[-np.log(250),-np.log(10),],
+            # clim=[0,500],
+            pcolor_opts={'cmap':'Spectral_r'}
+        )
+        # fig,ax = plt.subplots(1,1,figsize=(15,5))
+        mm2 = meshCore.plot_image(
+            1 / np.exp(self.invProb.reg.objfcts[0].mref), ax=ax[1],
+            # clim=[-np.log(250),-np.log(10),],
+            clim=[0,500],
+            pcolor_opts={'cmap':'Spectral_r'}
+        )
+        # ax.set_xlim([-750,750])
+        # ax.set_ylim([-250,0])
+        # fig,ax = plt.subplots(1,1,figsize=(15,5))
+        # mmpred = meshCore.plot_image(
+        #    predicted, ax=ax[3],
+        #     # clim=[-np.log(250),-np.log(10),],
+        #     pcolor_opts={'cmap':'Spectral'}
+        # )
+        
+        #plt.colorbar(mm[0])
+        # utils.plot2Ddata(
+        #     meshCore.gridCC,1 / np.exp(mtrue[actcore]),nx=500,ny=500,
+        #     contourOpts={'alpha':0},
+        #     clim=[0,500],
+        #     ax=ax[0],
+        #     level=True,
+        #     ncontour=2,
+        #     levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
+        #     method='nearest'
+        # )
+
+        ax[2].hist(1 / np.exp(self.opt.xc), 100)
+        # ax[2].set_aspect(1)
+
+        # ax[0].set_ylim([-15,0])
+        # ax[0].set_xlim([-15,15])
+        ax[0].set_aspect(1)
+        # ax[1].set_ylim([-15,0])
+        # ax[1].set_xlim([-15,15])
+        ax[1].set_aspect(1)
+        fig.savefig(f'./geological_segmentation/mcd_iterations/{self.start}.png')
+        np.save(f'./geological_segmentation/mcd_iterations/model_{self.start}.npy', self.opt.xc)
+        plt.show()
+        self.start += 1
+
+
 def read_dcip_data(filename, verbose=True):
     """
     Read in a .OBS file from the Century data set into a python dictionary. 
@@ -118,8 +180,10 @@ def read_dcip_data(filename, verbose=True):
 
 
 dc_data_file = "/home/juanito/Documents/projects/mcD/mcd-dc.dat"
+ip_data_file = "/home/juanito/Documents/projects/mcD/mcd-ip.dat"
 
 dc_survey = read_dcip_data(dc_data_file)
+ip_survey = read_dcip_data(ip_data_file)
 
 # load mesh
 mesh = discretize.TensorMesh.read_UBC("/home/juanito/Documents/projects/mcD/dflt/dcinv2d.msh")
@@ -146,7 +210,8 @@ simulation = dc.Simulation2DNodal(
 
 )
 
-standard_deviations = np.abs(dc_survey.dobs) * 0.05 + np.quantile(dc_survey.dobs, 0.05)
+standard_deviations = np.abs(dc_survey.dobs) * 0.08 + np.quantile(dc_survey.dobs, 0.1)
+# standard_deviations = np.abs(ip_survey.dobs) * 0.08 + np.quantile(ip_survey.dobs, 0.1)
 
 dc_data = Data(
     survey=dc_survey, 
@@ -167,6 +232,10 @@ plot_pseudosection(
     scatter_opts={"cmap": 'Spectral_r'},
 )
 ax1.set_title("Normalized Voltages")
+plt.show()
+
+plt.hist(np.log(dc_data.dobs), bins=50)
+plt.axvline(np.log(np.quantile(dc_data.dobs, 0.1)), color='r')
 plt.show()
 
 dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
@@ -267,8 +336,8 @@ MrefInSmooth = directives.PGI_AddMrefInSmooth(verbose=True,  wait_till_stable=Tr
 
 # update_sam = segment_iter()
 # update_sam.segmentation_model = segmentor
-# plot_iter_mref = plot_mref()
-# plot_iter_mref.mesh = meshCore
+plot_iter_mref = plot_mref()
+plot_iter_mref.mesh = mesh
 # updateSensW = directives.UpdateSensitivityWeights(threshold=5e-1, everyIter=False)
 # update_Jacobi = directives.UpdatePreconditioner()
 # save_pgi = SavePGIOutput('./pgi_param')
@@ -280,7 +349,7 @@ inv = inversion.BaseInversion(invProb,
                                             #  petrodir,
                                             targets, betaIt,
                                             #  MrefInSmooth,
-                                            # plot_iter_mref,
+                                            plot_iter_mref,
                                             # update_sam,
                                             #  save_pgi,
                                             # update_Jacobi,
@@ -290,5 +359,11 @@ inv = inversion.BaseInversion(invProb,
 
 mcluster = inv.run(m0)
 
+
+fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+
+mesh.plot_image(1/ np.exp(mcluster), ax=ax, pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
+ax.axis('equal')
+fig.savefig('mcdermont-dc.png')
 
 print(dc_survey.source_list)
