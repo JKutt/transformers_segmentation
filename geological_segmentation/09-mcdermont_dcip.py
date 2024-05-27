@@ -1,9 +1,8 @@
 # core python 
+import geological_segmentation as geoseg
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
-import ipywidgets
-import os
+from sklearn.decomposition import PCA
 
 # tools in the simPEG Ecosystem 
 import discretize  # for creating computational meshes
@@ -20,6 +19,7 @@ from SimPEG import (
     data_misfit, regularization, optimization, inverse_problem, 
     inversion, directives
 ) 
+from SimPEG.utils.code_utils import validate_ndarray_with_shape
 
 # DC resistivity and IP modules
 from SimPEG.electromagnetics import resistivity as dc
@@ -95,6 +95,137 @@ class plot_mref(directives.InversionDirective):
         np.save(f'./geological_segmentation/mcd_iterations/model_{self.start}.npy', self.opt.xc)
         plt.show()
         self.start += 1
+
+
+# update the neighbors
+class segment_iter(directives.InversionDirective):
+
+    seg_iter = [12]
+    segmentation_model: geoseg.SamClassificationModel=None
+    method = 'bound_box'
+    reg_rots = np.zeros(0)
+
+    def rotation_matrix(self, angle):
+        theta = np.radians(angle)
+        cos_theta = np.cos(theta)
+        sin_theta = np.sin(theta)
+        return np.array([[cos_theta, -sin_theta], [sin_theta, cos_theta]])
+
+    
+    def initialize(self):
+        self.count = 0
+    
+    def endIter(self):
+
+        print(f"Segmenting-iteration: {self.opt.iter}")
+        if self.opt.iter in self.seg_iter:
+            
+            # self.reg[1][1].update_gradients(self.opt.xc)
+            masks = self.segmentation_model.fit(self.opt.xc)
+
+            mesh = self.segmentation_model.mesh
+            reg_dirs = [np.identity(2) for _ in range(mesh.nC)]
+            sqrt2 = np.sqrt(2)
+            reg_rots = np.zeros(mesh.nC) + 90
+
+            # loop through masks and assign rotations
+            for ii in range(1, len(masks) - 1):
+                seg_data = masks[ii]['segmentation']
+                seg_data = np.flip(seg_data)
+                # Find the coordinates of the object pixels
+                object_pixels = np.argwhere(seg_data == 1)
+
+                # Apply PPCA to determine orientation
+                if len(object_pixels) > 1:
+
+                    # Apply PPCA
+                    pca = PCA(n_components=2)
+                    pca.fit(object_pixels)
+
+                    # The first principal component (eigenvector) will represent the orientation
+                    orientation_vector = pca.components_[0]
+                    scales = pca.singular_values_
+
+                    # Compute the angle of the orientation vector (in degrees)
+                    angle_degrees = np.arctan2(orientation_vector[1], orientation_vector[0]) * 180 / np.pi
+
+                    print(f"Orientation angle (degrees): {angle_degrees} and scales: {scales}")
+                    angle_radians = angle_degrees * np.pi / 180
+                    
+                    # rotation_matrix = 1 / np.array([[sqrt2, -sqrt2], [-sqrt2, -sqrt2],])
+                    alphas = np.ones((mesh.n_cells, mesh.dim))
+                    # check for rotation application method
+                    if self.method == 'bound_box':
+                        bbox_mask = self.segmentation_model.get_bound_box_indicies(ii)
+
+                        flatten = bbox_mask # masks[ii]['segmentation'].flatten(order='F')
+                        reshape = flatten.reshape(mesh.shape_cells, order='F')
+
+                        plt.imshow(reshape.T)
+                        plt.title(f'mask: {ii + 1}')
+                        plt.gca().invert_yaxis()
+                        # plt.plot([x0, x1], [y0, y1], 'ok')
+                        plt.show()
+
+                        for ii in range(mesh.nC):
+
+                            if bbox_mask[ii] == 1:
+                                # print('adjusting')
+                                # reg_cell_dirs[ii] = np.array([[cos, -sin], [sin, cos],])
+                                reg_rots[ii] = angle_degrees
+                                alphas[ii] =  [scales[1], scales[0]* 3]
+
+                        smoothed_rots = geoseg.gaussian_curvature(reg_rots.reshape((len(mesh.h[0]),len(mesh.h[1])), order="F"), smoothness=8).flatten(order="F")
+                        # now assign the priciple axis to the rotation matrix
+                        for ii in range(mesh.nC):
+
+                            if np.abs(reg_rots[ii]) > 0:
+                                # print('adjusting')
+                                # reg_cell_dirs[ii] = np.array([[cos, -sin], [sin, cos],])
+                                rot_matrix = self.rotation_matrix(smoothed_rots[ii])
+                                rotation_axis = np.array([rot_matrix[1, :].tolist(), rot_matrix[0, :].tolist(),])
+                                reg_dirs[ii] = rotation_axis
+                                
+                        #         alphas[ii] = [150, 25]
+                        # reg_dirs[bbox_mask] = [rotation_matrix] * int(bbox_mask.sum())
+                    else:
+                        reg_dirs[seg_data] = [rotation_matrix] * seg_data.sum()
+
+                    reg_dirs = validate_ndarray_with_shape(
+                        "reg_dirs",
+                        reg_dirs,
+                        shape=[(mesh.dim, mesh.dim), ("*", mesh.dim, mesh.dim)],
+                        dtype=float,
+                    )
+                    
+                    reg_seg = geoseg.GeologicalSegmentation(
+
+                        mesh, 
+                        reg_dirs=reg_dirs,
+                        alphas=alphas,
+                        ortho_check=False,
+
+                    )
+
+                    reg_small = regularization.Smallness(
+                        mesh=mesh,
+                        reference_model=self.reg[0][1].reference_model,
+                        )
+
+
+                    self.reg = reg_small + reg_seg
+                    self.reg.multipliers = np.r_[1e-5, 1000.0]
+                    self.invProb.reg = self.reg
+                    # self.invProb.beta = 100.0
+                    self.reg_rots = smoothed_rots
+
+                else:
+                    raise ValueError("Not enough object pixels to determine orientation.")
+
+
+        
+        self.count += 1
+
 
 
 def read_dcip_data(filename, verbose=True):
@@ -238,6 +369,11 @@ plt.hist(np.log(dc_data.dobs), bins=50)
 plt.axvline(np.log(np.quantile(dc_data.dobs, 0.1)), color='r')
 plt.show()
 
+segmentor = geoseg.SamClassificationModel(
+    mesh,
+    segmentation_model_checkpoint=r"/home/juanito/Documents/trained_models/sam_vit_h_4b8939.pth"
+)
+
 dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
 # dmis.w = 1 / np.abs(dc_data.dobs * 0.05 + np.quantile(np.abs(dc_data.dobs), 0.1))
 m0 = np.log(1/apparent_resistivity_from_voltage(dc_survey, dc_data.dobs).mean()) * np.ones(mapping.nP)
@@ -246,76 +382,31 @@ m0 = np.log(1/apparent_resistivity_from_voltage(dc_survey, dc_data.dobs).mean())
 idenMap = maps.IdentityMap(nP=m0.shape[0])
 wires = maps.Wires(('m', m0.shape[0]))
 
-# # load mask
-# rot_mask = np.load('rotation_block_mask_scaled.npy')
-
-# # set the regularization
-# alphas = np.ones((meshCore.n_cells, meshCore.dim))
-# # alphas[rot_mask] = [125, 25]
-# alphas[meshCore.cell_centers[:, 1] < 0.5] = [125, 25]
-# sqrt2 = np.sqrt(2)
-# # reg_cell_dirs = 1 / np.array([[sqrt2, -sqrt2], [sqrt2, sqrt2],])
-# # lets just assign them to the dip structure
-# # reg_cell_dirs = [np.identity(2) for _ in range(meshCore.nC)]
-
-# # lets just assign them to the dip structure
-# reg_cell_dirs = [1 / np.array([[sqrt2, sqrt2], [sqrt2, -sqrt2],]) for _ in range(meshCore.nC)]
-# print(reg_cell_dirs)
-# # lets expand the area we want to
-# # Dike 45*
-# dike00 = mesh.gridCC[:,1] > fault_function(mesh.gridCC[:,0],1, 50)
-# dike01 = mesh.gridCC[:,1] < fault_function(mesh.gridCC[:,0],1, 255)
-# dike_dir_reg = np.logical_and(dike00,dike01)
-
-# # reg model
-# reg_model = model.copy()
-
-# reg_model[dike_dir_reg]=4
-
-# # cos = np.cos(140*np.pi / 180) * 2
-# # sin = np.sin(140*np.pi / 180) * 2
-
-# for ii in range(meshCore.nC):
-
-#     if rot_mask[ii] == 1:
-#         print('adjusting')
-#         # reg_cell_dirs[ii] = np.array([[cos, -sin], [sin, cos],])
-#         reg_cell_dirs[ii] = 1 / np.array([[sqrt2, -sqrt2], [-sqrt2, -sqrt2],])
-#         alphas[ii] = [150, 25]
-
-# reg_seg = geoseg.GeologicalSegmentation(
-#     meshCore, 
-#     reg_dirs=None,
-#     ortho_check=False,
-# )
-
-# reg_1storder = regularization.SmoothnessFullGradient(
-#     meshCore, 
-#     reg_dirs=reg_cell_dirs,
-#     alphas=alphas,
-#     ortho_check=False,
-#     reference_model=np.log(1/dcutils.apparent_resistivity_from_voltage(survey, dc_data.dobs).mean()) * np.ones(mapping.nP)
-# )
-
-# reg_small = regularization.Smallness(
-#     mesh=meshCore,
-#     reference_model=np.log(1/dcutils.apparent_resistivity_from_voltage(survey, dc_data.dobs).mean()) * np.ones(mapping.nP),
-# )
-
-# # Weighting
-reg_org = regularization.WeightedLeastSquares(
+reg_seg = geoseg.GeologicalSegmentation(
     mesh, 
-    active_cells=actind,
-    mapping=idenMap,
-    reference_model=m0
+    reg_dirs=None,
+    ortho_check=False,
 )
 
-# reg_mean = reg_small + reg_seg # reg_1storder
-# reg_mean.multipliers = np.r_[0.00001, 10.0]
-reg_mean = reg_org
-reg_mean.alpha_s = 1e-3
-reg_mean.alpha_x = 100
-reg_mean.alpha_y = 100
+reg_small = regularization.Smallness(
+    mesh=mesh,
+    reference_model=m0,
+)
+
+# # Weighting
+# reg_org = regularization.WeightedLeastSquares(
+#     mesh, 
+#     active_cells=actind,
+#     mapping=idenMap,
+#     reference_model=m0
+# )
+
+reg_mean = reg_small + reg_seg # reg_1storder
+reg_mean.multipliers = np.r_[0.00001, 10.0]
+# reg_mean = reg_org
+# reg_mean.alpha_s = 1e-3
+# reg_mean.alpha_x = 100
+# reg_mean.alpha_y = 100
 # # reg_mean.mrefInSmooth = True
 # reg_mean.approx_gradient = True
 
@@ -334,13 +425,11 @@ targets = directives.MultiTargetMisfits(
 )
 MrefInSmooth = directives.PGI_AddMrefInSmooth(verbose=True,  wait_till_stable=True, tolerance=0.0)
 
-# update_sam = segment_iter()
-# update_sam.segmentation_model = segmentor
+update_sam = segment_iter()
+update_sam.segmentation_model = segmentor
 plot_iter_mref = plot_mref()
 plot_iter_mref.mesh = mesh
-# updateSensW = directives.UpdateSensitivityWeights(threshold=5e-1, everyIter=False)
-# update_Jacobi = directives.UpdatePreconditioner()
-# save_pgi = SavePGIOutput('./pgi_param')
+
 invProb.beta = 1e-1
 inv = inversion.BaseInversion(invProb,
                             directiveList=[
@@ -350,7 +439,7 @@ inv = inversion.BaseInversion(invProb,
                                             targets, betaIt,
                                             #  MrefInSmooth,
                                             plot_iter_mref,
-                                            # update_sam,
+                                            update_sam,
                                             #  save_pgi,
                                             # update_Jacobi,
                                             ])
