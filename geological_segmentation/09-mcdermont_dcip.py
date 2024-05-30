@@ -91,16 +91,16 @@ class plot_mref(directives.InversionDirective):
         # ax[1].set_ylim([-15,0])
         # ax[1].set_xlim([-15,15])
         ax[1].set_aspect(1)
-        fig.savefig(f'./geological_segmentation/mcd_iterations/{self.start}.png')
-        np.save(f'./geological_segmentation/mcd_iterations/model_{self.start}.npy', self.opt.xc)
-        plt.show()
+        fig.savefig(f'/home/juanito/Dropbox/JohnLindsey/geoseg/mcd_iterations_surfacew/{self.start}.png')
+        np.save(f'/home/juanito/Dropbox/JohnLindsey/geoseg/mcd_iterations_surfacew/model_{self.start}.npy', self.opt.xc)
+        # plt.show()
         self.start += 1
 
 
 # update the neighbors
 class segment_iter(directives.InversionDirective):
 
-    seg_iter = [12]
+    seg_iter = [13]
     segmentation_model: geoseg.SamClassificationModel=None
     method = 'bound_box'
     reg_rots = np.zeros(0)
@@ -129,7 +129,7 @@ class segment_iter(directives.InversionDirective):
             reg_rots = np.zeros(mesh.nC) + 90
 
             # loop through masks and assign rotations
-            for ii in range(1, len(masks) - 1):
+            for ii in range(1, len(masks)):
                 seg_data = masks[ii]['segmentation']
                 seg_data = np.flip(seg_data)
                 # Find the coordinates of the object pixels
@@ -161,11 +161,11 @@ class segment_iter(directives.InversionDirective):
                         flatten = bbox_mask # masks[ii]['segmentation'].flatten(order='F')
                         reshape = flatten.reshape(mesh.shape_cells, order='F')
 
-                        plt.imshow(reshape.T)
-                        plt.title(f'mask: {ii + 1}')
-                        plt.gca().invert_yaxis()
-                        # plt.plot([x0, x1], [y0, y1], 'ok')
-                        plt.show()
+                        # plt.imshow(reshape.T)
+                        # plt.title(f'mask: {ii + 1}')
+                        # plt.gca().invert_yaxis()
+                        # # plt.plot([x0, x1], [y0, y1], 'ok')
+                        # plt.show()
 
                         for ii in range(mesh.nC):
 
@@ -320,6 +320,46 @@ ip_survey = read_dcip_data(ip_data_file)
 mesh = discretize.TensorMesh.read_UBC("/home/juanito/Documents/projects/mcD/dflt/dcinv2d.msh")
 actind = np.ones(mesh.n_cells, dtype=bool)
 
+from SimPEG.electromagnetics.static import utils as sutils
+from scipy.spatial import cKDTree
+
+values = np.array([100, 100, 100, 75, 50, 30, 20, 15])
+
+n_layer = values.size
+
+uniqXYlocs, topoCC = sutils.gettopoCC(mesh, actind, option='center')
+
+tree = cKDTree(mesh.gridCC)
+
+# if octree:
+#     d, inds = tree.query(np.c_[uniqXYlocs, topoCC])
+
+# else:
+d, inds = tree.query(np.c_[uniqXYlocs.gridCC, topoCC])
+
+# Regularization (just for mesh use)
+regmap = maps.IdentityMap(nP=int(actind.sum()))
+
+reg = regularization.Sparse(
+    mesh, indActive=actind,
+    mapping=regmap
+)
+
+surface_weights_temp = np.ones(mesh.nC)
+surface_weights_temp[inds] = values[0]
+surface_weights = surface_weights_temp.copy()
+
+if n_layer > 1:
+
+    for i in range(n_layer - 1):
+        temp = np.zeros(mesh.nC)
+
+        temp[actind] = reg.regularization_mesh.aveFy2CC * reg.regularization_mesh.cell_gradient_y * surface_weights_temp[actind]
+
+        inds = temp == 0.5
+
+        surface_weights[inds] = values[i + 1]
+
 # set up simulation
 # Setup Problem with exponential mapping and Active cells only in the core mesh
 expmap = maps.ExpMap(mesh)
@@ -409,6 +449,7 @@ reg_mean.multipliers = np.r_[0.00001, 10.0]
 # reg_mean.alpha_y = 100
 # # reg_mean.mrefInSmooth = True
 # reg_mean.approx_gradient = True
+reg_mean.cell_weights = mesh.cell_volumes[actind] * surface_weights[actind]
 
 
 # Optimization
