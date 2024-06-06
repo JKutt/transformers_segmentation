@@ -14,6 +14,65 @@ import matplotlib.pyplot as plt
 from pymatsolver import Pardiso as Solver
 from SimPEG.electromagnetics.static import resistivity as dc, utils as dcutils
 import scipy.sparse as sp
+import pyproximal
+
+
+class SegmentationNorm:
+    def __init__(self, Z, c):
+        """
+        Initialize the class with matrix Z and vector c.
+        
+        Parameters:
+        Z (numpy.ndarray): A 2D array with shape (N_c, N_x * N_z).
+        c (numpy.ndarray): A 1D array with length N_c.
+        """
+        self.Z = Z
+        self.c = c
+        self.N_c = c.shape[0]
+        self.N_xz = Z.shape[1]
+    
+    def __call__(self, m):
+        """
+        Evaluate the function phi_{m,Z}.
+        
+        Parameters:
+        m (numpy.ndarray): A 1D array with length N_x * N_z.
+        
+        Returns:
+        float: The value of the function phi_{m,Z}.
+        """
+        phi = 0.0
+        for j in range(self.N_c):
+            for i in range(self.N_xz):
+                phi += self.Z[j, i] * (m[i] - self.c[j])**2
+        return phi
+    
+    def deriv(self, m):
+        """
+        Evaluate the gradient of phi_{m,Z} with respect to m.
+        
+        Parameters:
+        m (numpy.ndarray): A 1D array with length N_x * N_z.
+        
+        Returns:
+        numpy.ndarray: The gradient of phi_{m,Z} with respect to m.
+        """
+        grad = np.zeros_like(m)
+        for i in range(self.N_xz):
+            grad[i] = 2 * np.sum(self.Z[:, i] * (m[i] - self.c))
+        return grad
+    
+    def deriv2(self):
+        """
+        Evaluate the Hessian of phi_{m,Z} with respect to m.
+        
+        Returns:
+        numpy.ndarray: The Hessian matrix of phi_{m,Z}.
+        """
+        H = np.zeros(self.N_xz)
+        for i in range(self.N_xz):
+            H[i] = 2 * np.sum(self.Z[:, i])
+        return H
 
 # -------------------------------------------------------------------------------------------------
 
@@ -33,7 +92,7 @@ def soft_thresholding(x, threshold):
 
 class evaluate_objective():
     
-    def __init__(self, dmisfit, aug_lag, regularize, gamma=1.0e-1):
+    def __init__(self, dmisfit, aug_lag, regularize=None, gamma=1.0e-1, beta=1e0):
         """
         Evaluate the objective function for the inversion problem.
 
@@ -50,7 +109,7 @@ class evaluate_objective():
         self.aug_lag = aug_lag
         self.dmisfit = dmisfit
         self.regularize = regularize
-        self.beta = 1e0
+        self.beta = beta
 
     def __call__(self, model, return_g=True, return_H=True):
         f = self.dmisfit.simulation.fields(model)
@@ -61,31 +120,37 @@ class evaluate_objective():
         # Regularization term
         phi_m = reg(model)
         phi = phi_d + self.gamma * phi_m
+        if self.regularize is not None:
+            phi_rm = self.regularize(model)
+            phi += self.beta * phi_rm   
         out = (phi,)
-        print(f'phi_d: {phi_d}, phi_m: {phi_m}')
+        print(f'phi_d: {phi_d}, phi_m: {phi_m}, phi: {phi}')
 
         if return_g:
 
             phi_dDeriv = self.dmisfit.deriv(model, f=f)
             phi_mDeriv = self.aug_lag.deriv(model)
-            phi_rmDeriv = self.regularize.deriv(model)
-
-            g = phi_dDeriv + self.gamma * phi_mDeriv + self.beta * phi_rmDeriv
+            # phi_rmDeriv = self.regularize.deriv(model)
+            if self.regularize is not None:
+                g = phi_dDeriv + self.gamma * phi_mDeriv + self.beta * self.regularize.deriv(model)
+            else:
+                g = phi_dDeriv + self.gamma * phi_mDeriv
             out += (g,)
         
         if return_H:
             def H_fun(v):
                 phi_d2Deriv = self.dmisfit.deriv2(model, v, f=f)
                 phi_m2Deriv = self.aug_lag.deriv2(model, v=v)
-                phi_rm2Deriv = self.regularize.deriv2(model, v=v)
-
-                return phi_d2Deriv + self.gamma * phi_m2Deriv + self.beta * phi_rm2Deriv
+                # phi_rm2Deriv = self.regularize.deriv2(model, v=v)
+                if self.regularize is not None:
+                    return phi_d2Deriv + self.gamma * phi_m2Deriv + self.beta * self.regularize.deriv2()
+                else:
+                    return phi_d2Deriv + self.gamma * phi_m2Deriv
 
             H = sp.linalg.LinearOperator((model.size, model.size), H_fun, dtype=model.dtype)
             out += (H,)
 
         return out if len(out) > 1 else out[0]
-
 
 # -------------------------------------------------------------------------------------------------
 
@@ -94,9 +159,9 @@ class evaluate_objective():
 #
 
 #2D mesh
-csx,  csy,  csz = 25,  25,  25
+csx,  csy,  csz = 12.5, 12.5,  12.5
 # Number of core cells in each direction
-ncx,  ncz = int(162/2 + 1),  int(60/2 + 1)
+ncx,  ncz = 82,  31
 # Number of padding cells to add in each direction
 npad = 12
 # Vectors of cell lengthts in each direction
@@ -128,6 +193,15 @@ dike = np.logical_and(dike0,dike1)
 
 model[dike]=4
 
+# # plot
+# fig,ax = plt.subplots(3, 1,figsize=(10,20))
+# mm1 = mesh.plotImage(model, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
+
+# ax[0].set_xlim([-1000,1000])
+# ax[0].set_ylim([-250,0])
+# ax[0].set_aspect(2)
+# plt.colorbar(mm1[0])
+
 
 # define conductivities
 res_true = np.ones(mesh.nC)
@@ -146,47 +220,37 @@ cond_true = 1./res_true
 mtrue = np.log(cond_true)
 
 xmin, xmax = -1000., 1000.
-ymin, ymax = -400., 0.
+ymin, ymax = -500., 0.
 zmin, zmax = 0, 0
 xyzlim = np.r_[[[xmin, xmax], [ymin, ymax]]]
 actcore,  meshCore = utils.mesh_utils.extract_core_mesh(xyzlim, mesh)
-actind = np.ones(mesh.n_cells, dtype=bool)
+actind = np.ones_like(actcore)
 
-# plot
-fig,ax = plt.subplots(3, 1,figsize=(10,20))
-mm1 = mesh.plotImage(res_true, ax=ax[0], pcolorOpts={'cmap':'Spectral_r'})
-
-# ax[0].set_xlim([-1000,1000])
-# ax[0].set_ylim([-250,0])
-ax[0].set_aspect(1)
-plt.colorbar(mm1[0])
-
-# plot
-mm = meshCore.plot_image(
+# # plot
+# mm = meshCore.plot_image(
     
-    1/(cond_true)[actcore],
-    ax=ax[1],
-    pcolorOpts={'cmap':'Spectral_r'},
-    grid=True
+#     1/(cond_true)[actcore],
+#     ax=ax[0],
+#     pcolorOpts={'cmap':'Spectral_r'}
 
-)
+# )
 
-utils.plot2Ddata(
+# utils.plot2Ddata(
 
-    meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
-    contourOpts={'alpha':0},
-    #clim=[0,5],
-    ax=ax[1],
-    level=True,
-    ncontour=2,
-    levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
-    method='nearest'
+#     meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
+#     contourOpts={'alpha':0},
+#     #clim=[0,5],
+#     ax=ax[0],
+#     level=True,
+#     ncontour=2,
+#     levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
+#     method='nearest'
     
-)
+# )
 # plt.gca().set_ylim([-200,0])
-ax[1].set_aspect(1)
-plt.colorbar(mm[0], label=r'$\Omega$ m')
-ax[1].set_title('True model')
+# ax[0].set_aspect(1)
+# plt.colorbar(mm[0], label=r'$\Omega$ m')
+# ax[0].set_title('True model')
 
 xmin, xmax = -750., 750.
 ymin, ymax = 0., 0.
@@ -196,8 +260,6 @@ endl = np.array([[xmin, ymin, zmin], [xmax, ymax, zmax]])
 srclist = []
 
 for dipole in np.arange(25,250,25):
-
-    print(f'adding dipole size: {dipole}')
     
     survey1 = dcutils.generate_dcip_survey(
         
@@ -231,8 +293,8 @@ expmap = maps.ExpMap(mesh)
 mapactive = maps.InjectActiveCells(
     
     mesh=mesh,
-    indActive=actind,
-    valInactive=np.log(1e-8)
+    indActive=actcore,
+    valInactive=-np.log(100)
 
 )
 mapping = expmap * mapactive
@@ -255,9 +317,9 @@ simulation = dc.Simulation2DNodal(
 relative_measurement_error = 0.01
 dc_data = simulation.make_synthetic_data(
     
-    mtrue,
+    mtrue[actcore],
     relative_error=relative_measurement_error,
-    noise_floor=6e-3,
+    noise_floor=5e-3,
     force=True,
     add_noise=True,
 
@@ -268,7 +330,7 @@ dc_data = simulation.make_synthetic_data(
 relative_error_list = (np.abs(dc_data.standard_deviation/dc_data.dobs))
 print(relative_error_list.min())
 print(relative_error_list.max())
-print(dc_data.dobs.shape)
+
 
 # -----------------------------------------------------------------------
 
@@ -291,21 +353,26 @@ opt.remember('xc')
 solver_opts = dmis.simulation.solver_opts
 
 reg = regularization.Smallness(
-    mesh=mesh,
+    mesh=meshCore,
     reference_model=(z + u),
 )
 
-# # Weighting
-reg_mean = regularization.WeightedLeastSquares(
-    mesh, 
-    active_cells=actind,
-    mapping=idenMap,
-    reference_model=m0
-)
+segpd_prob = np.zeros((2, actcore.sum())) + 0.1
+c = np.array([np.log(1/380), np.log(1/30)])
 
-reg_mean.alpha_s = 0
-reg_mean.alpha_x = 100
-reg_mean.alpha_y = 100
+reg_seg = SegmentationNorm(segpd_prob, c)
+
+# # # Weighting
+# reg_mean = regularization.WeightedLeastSquares(
+#     mesh, 
+#     active_cells=actcore,
+#     mapping=idenMap,
+#     reference_model=m0
+# )
+
+# reg_mean.alpha_s = 1e-1
+# reg_mean.alpha_x = 100
+# reg_mean.alpha_y = 100
 
 opt.bfgsH0 = Solver(
     sp.csr_matrix(reg.deriv2(m0)), **solver_opts
@@ -313,68 +380,77 @@ opt.bfgsH0 = Solver(
 
 # segmentor = geoseg.SamClassificationModel(
 #     meshCore,
-#     segmentation_model_checkpoint=r"/home/juanito/Documents/trained_models/sam_vit_h_4b8939.pth"
+#     segmentation_model_checkpoint=r"/home/jkuttai/trained_models/sam_vit_h_4b8939.pth"
 # )
-
-eval_funct = evaluate_objective(dmis, reg, reg_mean)
-trade_off = 1e-3
-for ii in range(10):
+# segmentor.segment_model.cuda()
+eval_funct = evaluate_objective(dmis, reg, regularize=reg_seg)
+trade_off = 1e-5
+beta = 1e0
+phi_d_out = []
+res_z = []
+sigma = 2
+for ii in range(30):
    
     reg.reference_model=(z + u)
+    reg_seg.Z = segpd_prob
     print(f'm update {ii}')
-    m = opt.minimize(evaluate_objective(dmis, reg, reg_mean, gamma=trade_off), m)
+    m = opt.minimize(evaluate_objective(dmis, reg, regularize=reg_seg, gamma=trade_off), m)
     print(f'z update {ii}')
-    z = soft_thresholding(m + u, trade_off)
-
+    # z = soft_thresholding(m + u, trade_off)
+    # TV = pyproximal.TV(dims=(meshCore.n_cells, ), sigma=1e0)
+    # z = TV.prox(m + u, trade_off)
+    # l1 = pyproximal.L1(sigma=1e0)
+    # z = l1.prox(m + u, trade_off)
+    # tviso = pyproximal.L21(ndim=2, sigma=sigma)
+    # z = tviso.prox(m + u, trade_off)
     # # new z
     # segmentor.fit(m)
+    cl = np.array([np.log(1/380), np.log(1/30)])
+    ncl = len(cl)
+    segpd_prob, z_pd = \
+        pyproximal.optimization.segmentation.Segment(
+            m + u, cl, 1., 0.01,
+            niter=10, show=True,
+            kwargs_simplex=dict(engine='numba')
+        )
+    
+    z = np.zeros_like(m)
+    for j in range(ncl):
+        ind_class = np.where(z_pd == j)[0]
+        z[ind_class] = cl[j]
 
     # z = segmentor.predict(m)
 
     u = u + (m - z)
 
-    np.save(f'model_{ii}.npy', m)
-    np.save(f'z_variabe_{ii}.npy', z)
+    np.save(f'admm_iter/model_{ii}.npy', m)
+    np.save(f'admm_iter/z_variabe_{ii}.npy', z)
+    phi_d_out += [dmis(m)]
+    res_z += [np.linalg.norm(m - z)]
+    # if ii > 5:
+       # trade_off = 1e-2
+       # beta = 1e-3
 
-    if ii > 5:
-       trade_off = 1e-1
+import json
 
-fig, ax = plt.subplots(3, 1, figsize=(10, 5))
+phi_dict = {
+    'phi_d':phi_d_out,
+    'beta':beta,
+    'gamma':trade_off,
+    'norm_residual':res_z,
+}
+# Save dictionary to a JSON file
+with open('admm_iter/phi_d.json', 'w') as file:
+    json.dump(phi_dict, file)
 
-meshCore.plot_image(1/ np.exp(z[actind]), ax=ax[0], pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
-meshCore.plot_image(1/ np.exp(m[actind]), ax=ax[1], pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
-ax[0].axis('equal')
-ax[1].axis('equal')
-ax[2].hist(1/ np.exp(z[actind]), 100, label='z')
-ax[2].hist(1/ np.exp(m[actind]), 100, label='m', alpha=0.4)
+# fig, ax = plt.subplots(3, 1, figsize=(10, 5))
 
-utils.plot2Ddata(
-
-    meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
-    contourOpts={'alpha':0},
-    #clim=[0,5],
-    ax=ax[0],
-    level=True,
-    ncontour=2,
-    levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
-    method='nearest'
-    
-)
-
-utils.plot2Ddata(
-
-    meshCore.gridCC,mtrue[actcore],nx=500,ny=500,
-    contourOpts={'alpha':0},
-    #clim=[0,5],
-    ax=ax[1],
-    level=True,
-    ncontour=2,
-    levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
-    method='nearest'
-    
-)
-
-plt.show()
+# meshCore.plot_image(1/ np.exp(z), ax=ax[0], pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
+# meshCore.plot_image(1/ np.exp(m), ax=ax[1], pcolor_opts={'cmap':'Spectral'}, clim=[10, 500])
+# ax[0].axis('equal')
+# ax[1].axis('equal')
+# ax[2].hist(1/ np.exp(z), 100, label='z')
+# ax[2].hist(1/ np.exp(m), 100, label='m', alpha=0.4)
 
 np.save('model.npy', m)
 np.save('z_variabe.npy', z)
