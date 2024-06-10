@@ -32,6 +32,7 @@ from SimPEG.electromagnetics.static.utils.static_utils import (
 
 # set the font size in the plots
 from matplotlib import rcParams
+import json
 rcParams["font.size"] = 14
 
 
@@ -58,7 +59,7 @@ class plot_mref(directives.InversionDirective):
         mm2 = meshCore.plot_image(
             1 / np.exp(self.invProb.reg.objfcts[0].reference_model), ax=ax[1],
             # clim=[-np.log(250),-np.log(10),],
-            clim=[0,500],
+            # clim=[0,500],
             pcolor_opts={'cmap':'Spectral_r'}
         )
         # ax.set_xlim([-750,750])
@@ -92,8 +93,8 @@ class plot_mref(directives.InversionDirective):
         # ax[1].set_ylim([-15,0])
         # ax[1].set_xlim([-15,15])
         ax[1].set_aspect(1)
-        fig.savefig(f'./geological_segmentation/mcd_iterations/{self.start}.png')
-        np.save(f'./geological_segmentation/mcd_iterations/model_{self.start}.npy', self.opt.xc)
+        fig.savefig(f'/home/juanito/Dropbox/JohnLindsey/geoseg/mcd_iterations_ipseg_segcon/{self.start}.png')
+        np.save(f'/home/juanito/Dropbox/JohnLindsey/geoseg/mcd_iterations_ipseg_segcon/model_{self.start}.npy', self.opt.xc)
         # plt.show()
         self.start += 1
 
@@ -101,7 +102,7 @@ class plot_mref(directives.InversionDirective):
 # update the neighbors
 class segment_iter(directives.InversionDirective):
 
-    seg_iter = [13]
+    seg_iter = [8]
     segmentation_model: geoseg.SamClassificationModel=None
     method = 'bound_box'
     reg_rots = np.zeros(0)
@@ -120,19 +121,23 @@ class segment_iter(directives.InversionDirective):
 
         print(f"Segmenting-iteration: {self.opt.iter}")
         if self.opt.iter in self.seg_iter:
+
+            segment_dict = {'segment': []}
             
             # self.reg[1][1].update_gradients(self.opt.xc)
-            masks = self.segmentation_model.fit(self.opt.xc)
+            masks = self.segmentation_model.fit(np.log(self.opt.xc))
 
             mesh = self.segmentation_model.mesh
             reg_dirs = [np.identity(2) for _ in range(mesh.nC)]
-            sqrt2 = np.sqrt(2)
+     
             reg_rots = np.zeros(mesh.nC) + 90
 
             # loop through masks and assign rotations
-            for ii in range(1, len(masks)):
-                seg_data = masks[ii]['segmentation']
+            for kk in range(1, len(masks)):
+                
+                seg_data = masks[kk]['segmentation']
                 seg_data = np.flip(seg_data)
+
                 # Find the coordinates of the object pixels
                 object_pixels = np.argwhere(seg_data == 1)
 
@@ -149,6 +154,7 @@ class segment_iter(directives.InversionDirective):
 
                     # Compute the angle of the orientation vector (in degrees)
                     angle_degrees = np.arctan2(orientation_vector[1], orientation_vector[0]) * 180 / np.pi
+                    # angle_degrees = -78.9
 
                     print(f"Orientation angle (degrees): {angle_degrees} and scales: {scales}")
                     angle_radians = angle_degrees * np.pi / 180
@@ -157,7 +163,7 @@ class segment_iter(directives.InversionDirective):
                     alphas = np.ones((mesh.n_cells, mesh.dim))
                     # check for rotation application method
                     if self.method == 'bound_box':
-                        bbox_mask = self.segmentation_model.get_bound_box_indicies(ii)
+                        bbox_mask = self.segmentation_model.get_bound_box_indicies(kk)
 
                         flatten = bbox_mask # masks[ii]['segmentation'].flatten(order='F')
                         reshape = flatten.reshape(mesh.shape_cells, order='F')
@@ -174,7 +180,10 @@ class segment_iter(directives.InversionDirective):
                                 # print('adjusting')
                                 # reg_cell_dirs[ii] = np.array([[cos, -sin], [sin, cos],])
                                 reg_rots[ii] = angle_degrees
-                                alphas[ii] =  [scales[1], scales[0]* 3]
+                                if np.abs(angle_degrees) < 160:
+                                    alphas[ii] =  [scales[1], scales[0] * 4]
+                                else:
+                                    alphas[ii] =  [scales[1] * 4, scales[0]]
 
                         smoothed_rots = geoseg.gaussian_curvature(reg_rots.reshape((len(mesh.h[0]),len(mesh.h[1])), order="F"), smoothness=8).flatten(order="F")
                         # now assign the priciple axis to the rotation matrix
@@ -192,6 +201,18 @@ class segment_iter(directives.InversionDirective):
                     else:
                         reg_dirs[seg_data] = [rotation_matrix] * seg_data.sum()
 
+                     # initiate the dictionary for the segment collection
+                    
+                    seg = {'mask': masks[kk]['segmentation'].flatten(order='F').tolist(),
+                           'bbox': bbox_mask.tolist(),
+                           'orientation': angle_degrees,
+                           'scales': scales.tolist(),
+                           'rotation_matrix': rotation_axis.tolist(),
+                           'alphas': alphas.tolist()
+                    }
+
+                    segment_dict['segment'] += [seg]
+                    
                     reg_dirs = validate_ndarray_with_shape(
                         "reg_dirs",
                         reg_dirs,
@@ -223,7 +244,14 @@ class segment_iter(directives.InversionDirective):
                 else:
                     raise ValueError("Not enough object pixels to determine orientation.")
 
+            # Specify the filename
+            filename = f'/home/juanito/Dropbox/JohnLindsey/geoseg/mcd_iterations_ipseg_segcon/segmentations_{self.count}.json'
 
+            # Writing the dictionary to a JSON file
+            with open(filename, 'w') as json_file:
+                json.dump(segment_dict, json_file)
+
+            print(f"Dictionary has been written to {filename}")
         
         self.count += 1
 
@@ -402,83 +430,90 @@ ip_data = Data(
     standard_deviation=standard_deviations_ip
 )
 
-dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
-# dmis.w = 1 / np.abs(dc_data.dobs * 0.05 + np.quantile(np.abs(dc_data.dobs), 0.1))
-m0 = np.log(1/apparent_resistivity_from_voltage(dc_survey, dc_data.dobs).mean()) * np.ones(mapping.nP)
-print(f"background: {np.mean(apparent_resistivity_from_voltage(dc_survey, dc_data.dobs))} ohm-m")
-# m0 = np.load(r"/home/juanito/Documents/git/jresearch/geological_segmentation/guided/model_11.npy")
-# Create the regularization with GMM information
-idenMap = maps.IdentityMap(nP=m0.shape[0])
-wires = maps.Wires(('m', m0.shape[0]))
-
-reg_seg = geoseg.GeologicalSegmentation(
-    mesh, 
-    reg_dirs=None,
-    ortho_check=False,
+segmentor = geoseg.SamClassificationModel(
+    mesh,
+    segmentation_model_checkpoint=r"/home/juanito/Documents/trained_models/sam_vit_h_4b8939.pth"
 )
 
-reg_small = regularization.Smallness(
-    mesh=mesh,
-    reference_model=m0,
-)
+segmentor.segment_model.cuda()
 
-# Weighting
-reg_org = regularization.WeightedLeastSquares(
-    mesh, 
-    active_cells=actind,
-    mapping=idenMap,
-    reference_model=m0
-)
+# dmis = data_misfit.L2DataMisfit(data=dc_data, simulation=simulation)
+# # dmis.w = 1 / np.abs(dc_data.dobs * 0.05 + np.quantile(np.abs(dc_data.dobs), 0.1))
+# m0 = np.log(1/apparent_resistivity_from_voltage(dc_survey, dc_data.dobs).mean()) * np.ones(mapping.nP)
+# print(f"background: {np.mean(apparent_resistivity_from_voltage(dc_survey, dc_data.dobs))} ohm-m")
+# # m0 = np.load(r"/home/juanito/Documents/git/jresearch/geological_segmentation/guided/model_11.npy")
+# # Create the regularization with GMM information
+# idenMap = maps.IdentityMap(nP=m0.shape[0])
+# wires = maps.Wires(('m', m0.shape[0]))
+
+# reg_seg = geoseg.GeologicalSegmentation(
+#     mesh, 
+#     reg_dirs=None,
+#     ortho_check=False,
+# )
+
+# reg_small = regularization.Smallness(
+#     mesh=mesh,
+#     reference_model=m0,
+# )
+
+# # Weighting
+# reg_org = regularization.WeightedLeastSquares(
+#     mesh, 
+#     active_cells=actind,
+#     mapping=idenMap,
+#     reference_model=m0
+# )
 
 # reg_mean = reg_small + reg_seg # reg_1storder
 # reg_mean.multipliers = np.r_[0.00001, 10.0]
-reg_mean = reg_org
-# # reg_mean.alpha_s = 1e-3
-# # reg_mean.alpha_x = 100
-# # reg_mean.alpha_y = 100
-# # # reg_mean.mrefInSmooth = True
-# # reg_mean.approx_gradient = True
-# reg_mean.cell_weights = mesh.cell_volumes[actind] * surface_weights[actind]
+# # reg_mean = reg_org
+# # # reg_mean.alpha_s = 1e-3
+# # # reg_mean.alpha_x = 100
+# # # reg_mean.alpha_y = 100
+# # # # reg_mean.mrefInSmooth = True
+# # # reg_mean.approx_gradient = True
+# # reg_mean.cell_weights = mesh.cell_volumes[actind] * surface_weights[actind]
 
 
-# Optimization
-opt = optimization.ProjectedGNCG(maxIter=25, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
-opt.remember('xc')
+# # Optimization
+# opt = optimization.ProjectedGNCG(maxIter=30, upper=np.inf, lower=-np.inf, tolCG=1E-5, maxIterLS=20, )
+# opt.remember('xc')
 
-# Set the inverse problem
-invProb = inverse_problem.BaseInvProblem(dmis,  reg_mean,  opt)
-betaIt = directives.BetaSchedule(coolingFactor=2, coolingRate=4)
-targets = directives.MultiTargetMisfits(
-    TriggerSmall=True,
-    TriggerTheta=False,
-    verbose=True,
-)
-MrefInSmooth = directives.PGI_AddMrefInSmooth(verbose=True,  wait_till_stable=True, tolerance=0.0)
+# # Set the inverse problem
+# invProb = inverse_problem.BaseInvProblem(dmis,  reg_mean,  opt)
+# betaIt = directives.BetaSchedule(coolingFactor=2, coolingRate=4)
+# targets = directives.MultiTargetMisfits(
+#     TriggerSmall=True,
+#     TriggerTheta=False,
+#     verbose=True,
+# )
+# MrefInSmooth = directives.PGI_AddMrefInSmooth(verbose=True,  wait_till_stable=True, tolerance=0.0)
 
 # update_sam = segment_iter()
 # update_sam.segmentation_model = segmentor
-plot_iter_mref = plot_mref()
-plot_iter_mref.mesh = mesh
-updateSensW = directives.UpdateSensitivityWeights(threshold_value=5e-3, every_iteration=False)
-invProb.beta = 1e-1
-inv = inversion.BaseInversion(invProb,
-                            directiveList=[
-                                            # updateSensW,
-                                            # update_sam,
-                                            #  petrodir,
-                                            targets, betaIt,
-                                            #  MrefInSmooth,
-                                            plot_iter_mref,
-                                            # update_sam,
-                                            #  save_pgi,
-                                            # update_Jacobi,
-                                            ])
+# plot_iter_mref = plot_mref()
+# plot_iter_mref.mesh = mesh
+# updateSensW = directives.UpdateSensitivityWeights(threshold_value=5e-3, every_iteration=False)
+# invProb.beta = 1e-1
+# inv = inversion.BaseInversion(invProb,
+#                             directiveList=[
+#                                             updateSensW,
+#                                             # update_sam,
+#                                             #  petrodir,
+#                                             targets, betaIt,
+#                                             #  MrefInSmooth,
+#                                             plot_iter_mref,
+#                                             update_sam,
+#                                             #  save_pgi,
+#                                             # update_Jacobi,
+#                                             ])
 
-# Run!
+# # Run!
 
-mcluster = inv.run(m0)
+# mcluster = inv.run(m0)
 
-# mcluster = np.load(r"/home/juanito/Dropbox/JohnLindsey/geoseg/mcd_iterations/model_8.npy")
+mcluster = np.load(r"/home/juanito/Dropbox/JohnLindsey/geoseg/mcd_iterations_geoseg/model_29.npy")
 
 
 # fig, ax = plt.subplots(1, 1, figsize=(10, 5))
@@ -487,46 +522,46 @@ mcluster = inv.run(m0)
 # ax.axis('equal')
 # fig.savefig('mcdermont-dc.png')
 
-# print(dc_survey.source_list)
+print(dc_survey.source_list)
 
 # ------------------- IP -------------------
 
-# # Model parameters to all cells
-# chargeability_map = maps.InjectActiveCells(mesh, actind, 0.0)
+# Model parameters to all cells
+chargeability_map = maps.InjectActiveCells(mesh, actind, 0.0)
 
-# # ip simulation
-# simulation_ip = ip.Simulation2DNodal(
+# ip simulation
+simulation_ip = ip.Simulation2DNodal(
     
-#     mesh, 
-#     survey=ip_survey, 
-#     sigmaMap=mapping,
-#     solver=Solver,
-#     sigma=mapping * mcluster,
-#     etaMap=chargeability_map,
-#     nky=8
+    mesh, 
+    survey=ip_survey, 
+    sigmaMap=mapping,
+    solver=Solver,
+    sigma=mapping * mcluster,
+    etaMap=chargeability_map,
+    nky=8
 
-# )
+)
 
-# dmis_ip = data_misfit.L2DataMisfit(data=ip_data, simulation=simulation_ip)
-# # dmis.w = 1 / np.abs(dc_data.dobs * 0.05 + np.quantile(np.abs(dc_data.dobs), 0.1))
-# m0_ip = 1e-3 * np.ones(actind.sum())
-# # m0 = np.load(r"/home/juanito/Documents/git/jresearch/geological_segmentation/guided/model_11.npy")
-# # Create the regularization with GMM information
-# idenMap_ip = maps.IdentityMap(nP=m0_ip.shape[0])
-# wires_ip = maps.Wires(('m', m0_ip.shape[0]))
+dmis_ip = data_misfit.L2DataMisfit(data=ip_data, simulation=simulation_ip)
+# dmis.w = 1 / np.abs(dc_data.dobs * 0.05 + np.quantile(np.abs(dc_data.dobs), 0.1))
+m0_ip = 1e-3 * np.ones(actind.sum())
+# m0 = np.load(r"/home/juanito/Documents/git/jresearch/geological_segmentation/guided/model_11.npy")
+# Create the regularization with GMM information
+idenMap_ip = maps.IdentityMap(nP=m0_ip.shape[0])
+wires_ip = maps.Wires(('m', m0_ip.shape[0]))
 
-# # reg_seg_ip = geoseg.GeologicalSegmentation(
-# #     mesh, 
-# #     reg_dirs=None,
-# #     ortho_check=False,
-# # )
+reg_seg_ip = geoseg.GeologicalSegmentation(
+    mesh, 
+    reg_dirs=None,
+    ortho_check=False,
+)
 
-# # reg_small_ip = regularization.Smallness(
-# #     mesh=mesh,
-# #     reference_model=m0_ip,
-# # )
+reg_small_ip = regularization.Smallness(
+    mesh=mesh,
+    reference_model=m0_ip,
+)
 
-# # Weighting
+# Weighting
 # reg_org_ip = regularization.WeightedLeastSquares(
 #     mesh, 
 #     active_cells=actind,
@@ -534,50 +569,50 @@ mcluster = inv.run(m0)
 #     reference_model=m0_ip
 # )
 
-# # reg_mean_ip = reg_small_ip + reg_seg_ip # reg_1storder
-# # reg_mean_ip.multipliers = np.r_[0.00001, 10.0]
+reg_mean_ip = reg_small_ip + reg_seg_ip # reg_1storder
+reg_mean_ip.multipliers = np.r_[0.00001, 10.0]
 # reg_mean_ip = reg_org_ip
 # reg_mean_ip.alpha_s = 1e-3
 # reg_mean_ip.alpha_x = 100
 # reg_mean_ip.alpha_y = 100
-# # # reg_mean.mrefInSmooth = True
-# # reg_mean.approx_gradient = True
-# # reg_mean.cell_weights = mesh.cell_volumes[actind] * surface_weights[actind]
+# # reg_mean.mrefInSmooth = True
+# reg_mean.approx_gradient = True
+# reg_mean.cell_weights = mesh.cell_volumes[actind] * surface_weights[actind]
 
 
-# # Optimization
-# opt_ip = optimization.ProjectedGNCG(maxIter=15, lower=0, upper=0.1, tolCG=1E-5, maxIterLS=20, )
-# opt_ip.remember('xc')
+# Optimization
+opt_ip = optimization.ProjectedGNCG(maxIter=15, lower=0, upper=0.1, tolCG=1E-5, maxIterLS=20, )
+opt_ip.remember('xc')
 
-# # Set the inverse problem
-# invProb_ip = inverse_problem.BaseInvProblem(dmis_ip,  reg_mean_ip,  opt_ip)
-# betaIt = directives.BetaSchedule(coolingFactor=2, coolingRate=2)
-# targets = directives.MultiTargetMisfits(
-#     TriggerSmall=True,
-#     TriggerTheta=False,
-#     verbose=True,
-# )
-# MrefInSmooth = directives.PGI_AddMrefInSmooth(verbose=True,  wait_till_stable=True, tolerance=0.0)
+# Set the inverse problem
+invProb_ip = inverse_problem.BaseInvProblem(dmis_ip,  reg_mean_ip,  opt_ip)
+betaIt = directives.BetaSchedule(coolingFactor=2, coolingRate=2)
+targets = directives.MultiTargetMisfits(
+    TriggerSmall=True,
+    TriggerTheta=False,
+    verbose=True,
+)
+MrefInSmooth = directives.PGI_AddMrefInSmooth(verbose=True,  wait_till_stable=True, tolerance=0.0)
 
-# # update_sam = segment_iter()
-# # update_sam.segmentation_model = segmentor
-# plot_iter_mref = plot_mref()
-# plot_iter_mref.mesh = mesh
-# updateSensW = directives.UpdateSensitivityWeights(threshold_value=5e-3, every_iteration=False)
-# invProb_ip.beta = 1e-1
-# inv_ip = inversion.BaseInversion(invProb_ip,
-#                             directiveList=[
-#                                             updateSensW,
-#                                             # update_sam,
-#                                             #  petrodir,
-#                                             targets, betaIt,
-#                                             #  MrefInSmooth,
-#                                             plot_iter_mref,
-#                                             # update_sam,
-#                                             #  save_pgi,
-#                                             # update_Jacobi,
-#                                             ])
+update_sam = segment_iter()
+update_sam.segmentation_model = segmentor
+plot_iter_mref = plot_mref()
+plot_iter_mref.mesh = mesh
+updateSensW = directives.UpdateSensitivityWeights(threshold_value=5e-3, every_iteration=False)
+invProb_ip.beta = 1e-1
+inv_ip = inversion.BaseInversion(invProb_ip,
+                            directiveList=[
+                                            updateSensW,
+                                            # update_sam,
+                                            #  petrodir,
+                                            targets, betaIt,
+                                            #  MrefInSmooth,
+                                            plot_iter_mref,
+                                            update_sam,
+                                            #  save_pgi,
+                                            # update_Jacobi,
+                                            ])
 
-# # Run!
+# Run!
 
-# mcluster_ip = inv_ip.run(m0_ip)
+mcluster_ip = inv_ip.run(m0_ip)

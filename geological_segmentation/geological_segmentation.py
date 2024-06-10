@@ -451,10 +451,10 @@ class SamClassificationModel():
         
         a = 0
         b = 0 #self.segmentations[id]['bbox'][0] - (self.segmentations[id]['bbox'][2] // 2)
-        y0 = self.segmentations[id]['bbox'][0]
-        x0 = self.segmentations[id]['bbox'][1] - (2 * b)
-        x1 = x0 + self.segmentations[id]['bbox'][3] + (4 * b)
-        y1 = y0 + self.segmentations[id]['bbox'][2] + a
+        y0 = int(self.segmentations[id]['bbox'][0])
+        x0 = int(self.segmentations[id]['bbox'][1] - (2 * b))
+        x1 = int(x0 + self.segmentations[id]['bbox'][3] + (4 * b))
+        y1 = int(y0 + self.segmentations[id]['bbox'][2] + a)
 
         # check that the numbers checkout
         if y0 < 0:
