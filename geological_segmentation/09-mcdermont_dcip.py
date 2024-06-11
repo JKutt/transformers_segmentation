@@ -62,26 +62,6 @@ class plot_mref(directives.InversionDirective):
             # clim=[0,500],
             pcolor_opts={'cmap':'Spectral_r'}
         )
-        # ax.set_xlim([-750,750])
-        # ax.set_ylim([-250,0])
-        # fig,ax = plt.subplots(1,1,figsize=(15,5))
-        # mmpred = meshCore.plot_image(
-        #    predicted, ax=ax[3],
-        #     # clim=[-np.log(250),-np.log(10),],
-        #     pcolor_opts={'cmap':'Spectral'}
-        # )
-        
-        #plt.colorbar(mm[0])
-        # utils.plot2Ddata(
-        #     meshCore.gridCC,1 / np.exp(mtrue[actcore]),nx=500,ny=500,
-        #     contourOpts={'alpha':0},
-        #     clim=[0,500],
-        #     ax=ax[0],
-        #     level=True,
-        #     ncontour=2,
-        #     levelOpts={'colors':'k','linewidths':2,'linestyles':'--'},
-        #     method='nearest'
-        # )
 
         # ax[2].hist(1 / np.exp(self.opt.xc), 100)
         ax[2].hist(self.opt.xc, 100)
